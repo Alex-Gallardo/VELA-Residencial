@@ -1,0 +1,69 @@
+{
+  "name": "vela",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --environment node --dir tests/unit",
+    "test:watch": "vitest",
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "format:check": "prettier --check .",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "verify:database": "tsx scripts/verify-database.ts",
+    "verify:services": "tsx scripts/verify-services.ts",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "1.2.3",
+    "@prisma/client": "6.19.3",
+    "@sentry/node": "10.69.0",
+    "@sentry/nextjs": "10.69.0",
+    "@supabase/ssr": "0.7.0",
+    "@supabase/supabase-js": "2.57.4",
+    "@vercel/analytics": "1.5.0",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "dotenv": "16.5.0",
+    "lucide-react": "0.468.0",
+    "next": "15.5.22",
+    "posthog-js": "1.268.6",
+    "posthog-node": "5.11.0",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "server-only": "0.0.1",
+    "tailwind-merge": "2.6.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "3.3.1",
+    "@types/node": "22.15.30",
+    "@types/react": "19.1.8",
+    "@types/react-dom": "19.1.6",
+    "autoprefixer": "10.4.21",
+    "eslint": "9.28.0",
+    "eslint-config-next": "15.5.22",
+    "embedded-postgres": "18.4.0-beta.17",
+    "husky": "9.1.7",
+    "postcss": "8.5.23",
+    "prettier": "3.5.3",
+    "prisma": "6.19.3",
+    "tailwindcss": "3.4.17",
+    "tsx": "4.19.4",
+    "typescript": "5.8.3",
+    "vitest": "3.2.7"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "overrides": {
+    "postcss": "8.5.23",
+    "sharp": "0.35.0"
+  }
+}

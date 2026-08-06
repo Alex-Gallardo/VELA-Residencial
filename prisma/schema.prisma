@@ -1,0 +1,444 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum RoleName {
+  ADMIN_GENERAL
+  OPERACIONES
+  COMUNICACIONES
+  FINANZAS
+  MODERADOR
+  SEGURIDAD
+  RESIDENTE
+  SOPORTE_SISTEMA
+}
+
+enum DwellingType {
+  CASA
+  APARTAMENTO
+  LOCAL
+  OTRO
+}
+
+enum HouseholdRelation {
+  PROPIETARIO
+  INQUILINO
+  FAMILIAR
+  PERSONAL_DOMESTICO
+  OTRO
+}
+
+enum TicketStatus {
+  BORRADOR
+  ENVIADO
+  EN_REVISION
+  PENDIENTE_INFO
+  ASIGNADO
+  EN_PROCESO
+  RESUELTO
+  CERRADO
+  DUPLICADO
+  RECHAZADO
+  ESCALADO
+  REABIERTO
+}
+
+enum TicketCategory {
+  SEGURIDAD
+  MANTENIMIENTO
+  LIMPIEZA
+  ILUMINACION
+  RUIDO
+  AREAS_COMUNES
+  REGLAMENTO
+  SUGERENCIA
+  OTRO
+}
+
+enum Priority {
+  BAJA
+  MEDIA
+  ALTA
+  URGENTE
+}
+
+enum NoticeType {
+  ALERTA_CRITICA
+  AVISO_OPERATIVO
+  COMUNICADO_ADMIN
+  EVENTO_COMUNITARIO
+}
+
+enum NotificationType {
+  AVISO
+  ALERTA
+  TICKET_UPDATE
+  PAGO
+  MENSAJE_DIRECTO
+  ENCUESTA
+  SEGURIDAD_CUENTA
+}
+
+enum NotificationChannel {
+  IN_APP
+  PUSH
+  EMAIL
+  SMS
+}
+
+enum ModerationStatus {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+  EN_REVISION_HUMANA
+}
+
+enum InvitationStatus {
+  PENDIENTE
+  ACEPTADA
+  EXPIRADA
+  REVOCADA
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      String   @default("basic")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships   Membership[]
+  dwellings     Dwelling[]
+  households    Household[]
+  tickets       Ticket[]
+  notices       Notice[]
+  notifications Notification[]
+  documents     Document[]
+  invitations   Invitation[]
+  auditLogs     AuditLog[]
+  categories    CategoryConfig[]
+
+  @@index([slug])
+}
+
+model User {
+  id            String   @id
+  email         String   @unique
+  fullName      String?
+  phone         String?
+  phoneVerified Boolean  @default(false)
+  avatarUrl     String?
+  createdAt     DateTime @default(now())
+
+  memberships      Membership[]
+  householdMembers HouseholdMember[]
+  ticketsCreated   Ticket[]          @relation("TicketCreatedBy")
+  ticketsAssigned  Ticket[]          @relation("TicketAssignee")
+  ticketActivities TicketActivity[]
+  ticketComments   TicketComment[]
+  notifications    Notification[]
+  noticeReceipts   NoticeReceipt[]
+  auditLogs        AuditLog[]
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roles  MembershipRole[]
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+}
+
+model MembershipRole {
+  id           String    @id @default(cuid())
+  membershipId String
+  role         RoleName
+  expiresAt    DateTime?
+  grantedById  String?
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, role])
+}
+
+model Dwelling {
+  id        String       @id @default(cuid())
+  tenantId  String
+  code      String
+  type      DwellingType @default(CASA)
+  zone      String?
+  lat       Float?
+  lng       Float?
+  createdAt DateTime     @default(now())
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  households Household[]
+  tickets    Ticket[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+model Household {
+  id         String   @id @default(cuid())
+  tenantId   String
+  dwellingId String
+  name       String?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dwelling Dwelling          @relation(fields: [dwellingId], references: [id], onDelete: Cascade)
+  members  HouseholdMember[]
+
+  @@index([tenantId])
+  @@index([dwellingId])
+}
+
+model HouseholdMember {
+  id          String            @id @default(cuid())
+  tenantId    String
+  householdId String
+  userId      String?
+  fullName    String
+  relation    HouseholdRelation
+  isPrimary   Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([householdId])
+}
+
+model Ticket {
+  id            String         @id @default(cuid())
+  tenantId      String
+  number        Int
+  title         String
+  description   String
+  category      TicketCategory
+  priority      Priority       @default(MEDIA)
+  status        TicketStatus   @default(ENVIADO)
+  createdById   String
+  assigneeId    String?
+  dwellingId    String?
+  locationText  String?
+  duplicateOfId String?
+  duplicateOf   Ticket?        @relation("TicketDuplicates", fields: [duplicateOfId], references: [id])
+  duplicates    Ticket[]       @relation("TicketDuplicates")
+  slaDueAt      DateTime?
+  ackAt         DateTime?
+  resolvedAt    DateTime?
+  closedAt      DateTime?
+  rating        Int?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   User             @relation("TicketCreatedBy", fields: [createdById], references: [id])
+  assignee    User?            @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  dwelling    Dwelling?        @relation(fields: [dwellingId], references: [id])
+  activities  TicketActivity[]
+  comments    TicketComment[]
+  attachments Attachment[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, category])
+  @@index([assigneeId])
+}
+
+model TicketActivity {
+  id         String        @id @default(cuid())
+  tenantId   String
+  ticketId   String
+  actorId    String?
+  fromStatus TicketStatus?
+  toStatus   TicketStatus?
+  note       String?
+  createdAt  DateTime      @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actor  User?  @relation(fields: [actorId], references: [id])
+
+  @@index([ticketId])
+}
+
+model TicketComment {
+  id         String   @id @default(cuid())
+  tenantId   String
+  ticketId   String
+  authorId   String
+  body       String
+  isInternal Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User   @relation(fields: [authorId], references: [id])
+
+  @@index([ticketId])
+}
+
+model Attachment {
+  id           String   @id @default(cuid())
+  tenantId     String
+  ticketId     String?
+  storageKey   String
+  mimeType     String
+  sizeBytes    Int
+  exifStripped Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  ticket     Ticket?         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  moderation ModerationItem?
+
+  @@index([tenantId])
+  @@index([ticketId])
+}
+
+model ModerationItem {
+  id           String           @id @default(cuid())
+  tenantId     String
+  attachmentId String           @unique
+  status       ModerationStatus @default(PENDIENTE)
+  provider     String?
+  confidence   Float?
+  labels       Json?
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime         @default(now())
+
+  attachment Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+}
+
+model Notice {
+  id                  String     @id @default(cuid())
+  tenantId            String
+  type                NoticeType
+  title               String
+  body                String
+  audience            Json
+  requiresReadReceipt Boolean    @default(false)
+  publishedAt         DateTime?
+  expiresAt           DateTime?
+  createdById         String
+  createdAt           DateTime   @default(now())
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  receipts NoticeReceipt[]
+
+  @@index([tenantId, type])
+}
+
+model NoticeReceipt {
+  id       String    @id @default(cuid())
+  tenantId String
+  noticeId String
+  userId   String
+  readAt   DateTime?
+
+  notice Notice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([noticeId, userId])
+}
+
+model Notification {
+  id        String              @id @default(cuid())
+  tenantId  String
+  userId    String
+  type      NotificationType
+  channel   NotificationChannel
+  title     String
+  body      String
+  linkUrl   String?
+  readAt    DateTime?
+  sentAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, readAt])
+}
+
+model Document {
+  id         String   @id @default(cuid())
+  tenantId   String
+  title      String
+  category   String
+  storageKey String
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model Invitation {
+  id          String             @id @default(cuid())
+  tenantId    String
+  email       String
+  dwellingId  String?
+  relation    HouseholdRelation?
+  role        RoleName           @default(RESIDENTE)
+  token       String             @unique
+  status      InvitationStatus   @default(PENDIENTE)
+  expiresAt   DateTime
+  createdById String
+  createdAt   DateTime           @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  actorId   String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor  User?  @relation(fields: [actorId], references: [id])
+
+  @@index([tenantId, createdAt])
+}
+
+model CategoryConfig {
+  id          String         @id @default(cuid())
+  tenantId    String
+  category    TicketCategory
+  slaHours    Int            @default(48)
+  defaultRole RoleName?
+  active      Boolean        @default(true)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, category])
+}
