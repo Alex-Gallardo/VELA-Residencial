@@ -9,11 +9,16 @@ config({ path: ".env.local" });
 
 async function verifySupabase() {
   const env = getPublicSupabaseEnv();
-  const response = await fetch(`${env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/`, {
-    headers: { apikey: env.NEXT_PUBLIC_SUPABASE_ANON_KEY },
-  });
-  if (!response.ok)
-    throw new Error(`Supabase REST respondió ${response.status}`);
+  const response = await fetch(
+    `${env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/health`,
+    {
+      headers: { apikey: env.NEXT_PUBLIC_SUPABASE_ANON_KEY },
+    },
+  );
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error(`Supabase REST respondió ${response.status}: ${detail}`);
+  }
 }
 
 async function verifyDatabase() {
