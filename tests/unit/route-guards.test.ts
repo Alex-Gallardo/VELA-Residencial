@@ -10,6 +10,9 @@ describe("protección de rutas", () => {
   it("clasifica rutas privadas sin bloquear las públicas", () => {
     expect(isPrivateRoute("/inicio")).toBe(true);
     expect(isPrivateRoute("/reportes/nuevo")).toBe(true);
+    expect(isPrivateRoute("/avisos")).toBe(true);
+    expect(isPrivateRoute("/notificaciones")).toBe(true);
+    expect(isPrivateRoute("/perfil")).toBe(true);
     expect(isPrivateRoute("/admin/invitaciones")).toBe(true);
     expect(isPrivateRoute("/onboarding")).toBe(true);
     expect(isPrivateRoute("/login")).toBe(false);

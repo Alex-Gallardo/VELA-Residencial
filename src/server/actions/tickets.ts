@@ -12,6 +12,11 @@ import {
   transitionTicketSchema,
 } from "@/lib/validations/ticket";
 import { InvalidTicketTransitionError } from "@/server/services/ticket-state-machine";
+import { dispatchPendingNotifications } from "@/server/services/notification-delivery";
+import {
+  enqueueNewTicketNotifications,
+  enqueueTicketUpdateNotification,
+} from "@/server/services/notification-service";
 import {
   addTicketComment,
   assignTicket,
@@ -72,6 +77,13 @@ export async function createTicketAction(
       tenantId: context.membership.tenantId,
       userId: context.user.id,
     });
+    const notifications = await enqueueNewTicketNotifications(db, {
+      tenantId: context.membership.tenantId,
+      ticketId: ticket.id,
+    });
+    await dispatchPendingNotifications({
+      notificationIds: notifications.map(({ id }) => id),
+    });
     revalidatePath("/inicio");
     revalidatePath("/reportes");
     revalidatePath("/admin/tickets");
@@ -110,6 +122,14 @@ export async function assignTicketAction(formData: FormData) {
       tenantId: context.membership.tenantId,
       actorId: context.user.id,
     });
+    const notifications = await enqueueTicketUpdateNotification(db, {
+      tenantId: context.membership.tenantId,
+      ticketId: parsed.data.ticketId,
+      message: "La administración asignó un responsable.",
+    });
+    await dispatchPendingNotifications({
+      notificationIds: notifications.map(({ id }) => id),
+    });
   } catch (error) {
     if (error instanceof TicketServiceError)
       redirect(adminTicketPath(parsed.data.ticketId, "error", error.message));
@@ -136,6 +156,14 @@ export async function transitionTicketAction(formData: FormData) {
       ...parsed.data,
       tenantId: context.membership.tenantId,
       actorId: context.user.id,
+    });
+    const notifications = await enqueueTicketUpdateNotification(db, {
+      tenantId: context.membership.tenantId,
+      ticketId: parsed.data.ticketId,
+      message: `El estado cambió a ${parsed.data.toStatus.replaceAll("_", " ").toLowerCase()}.`,
+    });
+    await dispatchPendingNotifications({
+      notificationIds: notifications.map(({ id }) => id),
     });
   } catch (error) {
     if (
@@ -197,6 +225,16 @@ export async function addAdminTicketCommentAction(formData: FormData) {
       isInternal,
       access: "staff",
     });
+    if (!isInternal) {
+      const notifications = await enqueueTicketUpdateNotification(db, {
+        tenantId: context.membership.tenantId,
+        ticketId: parsed.data.ticketId,
+        message: "La administración agregó un comentario.",
+      });
+      await dispatchPendingNotifications({
+        notificationIds: notifications.map(({ id }) => id),
+      });
+    }
   } catch (error) {
     if (error instanceof TicketServiceError)
       redirect(adminTicketPath(parsed.data.ticketId, "error", error.message));

@@ -1,8 +1,17 @@
-import { Flame, Home, Images, MailPlus, TicketCheck } from "lucide-react";
+import {
+  Flame,
+  Home,
+  Images,
+  LogOut,
+  MailPlus,
+  Megaphone,
+  TicketCheck,
+} from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { can, type PermissionUser } from "@/lib/permissions";
+import { logoutAction } from "@/server/actions/auth";
 
 export function AdminShell({
   children,
@@ -40,6 +49,14 @@ export function AdminShell({
               <TicketCheck className="size-4" aria-hidden="true" /> Tickets
             </Link>
           )}
+          {can(permissions, "create", "notice") && (
+            <Link
+              className="flex min-h-11 items-center gap-2 rounded-md border bg-surface px-3"
+              href="/admin/avisos"
+            >
+              <Megaphone className="size-4" aria-hidden="true" /> Avisos
+            </Link>
+          )}
           {can(permissions, "invite", "invitation") && (
             <Link
               className="flex min-h-11 items-center gap-2 rounded-md border bg-surface px-3"
@@ -54,6 +71,11 @@ export function AdminShell({
           >
             <Home className="size-4" aria-hidden="true" /> Inicio
           </Link>
+          <form action={logoutAction}>
+            <button className="flex min-h-11 items-center gap-2 rounded-md border bg-surface px-3">
+              <LogOut className="size-4" aria-hidden="true" /> Salir
+            </button>
+          </form>
         </div>
       </nav>
       <div className="mx-auto mt-9 max-w-7xl">{children}</div>

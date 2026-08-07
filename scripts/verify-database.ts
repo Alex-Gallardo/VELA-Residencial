@@ -7,6 +7,8 @@ import { join, resolve, sep } from "node:path";
 import {
   AttachmentStatus,
   ModerationStatus,
+  NoticeType,
+  NotificationChannel,
   PrismaClient,
   RoleName,
   TicketCategory,
@@ -19,6 +21,11 @@ import {
   ModerationServiceError,
   reviewModerationItem,
 } from "../src/server/services/moderation-service";
+import {
+  createNotice,
+  markNoticeRead,
+  publishDueNotices,
+} from "../src/server/services/notice-service";
 import {
   addTicketComment,
   assignTicket,
@@ -125,6 +132,40 @@ async function visibleModerationItems(prisma: PrismaClient, userId: string) {
     );
     return transaction.$queryRaw<Array<{ id: string }>>`
       SELECT "id" FROM "ModerationItem"
+    `;
+  });
+}
+
+async function visibleNotices(prisma: PrismaClient, userId: string) {
+  return prisma.$transaction(async (transaction) => {
+    await transaction.$executeRawUnsafe("SET LOCAL ROLE authenticated");
+    await transaction.$executeRawUnsafe(
+      "SELECT set_config('request.jwt.claim.sub', $1, true)",
+      userId,
+    );
+    return transaction.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "Notice" ORDER BY "createdAt"
+    `;
+  });
+}
+
+async function noticeRlsDiagnostics(
+  prisma: PrismaClient,
+  userId: string,
+  noticeId: string,
+) {
+  return prisma.$transaction(async (transaction) => {
+    await transaction.$executeRawUnsafe("SET LOCAL ROLE authenticated");
+    await transaction.$executeRawUnsafe(
+      "SELECT set_config('request.jwt.claim.sub', $1, true)",
+      userId,
+    );
+    return transaction.$queryRaw`
+      SELECT
+        auth.uid()::text AS uid,
+        public.auth_can_access_notice(${noticeId}) AS can_access,
+        (SELECT count(*)::int FROM "NoticeReceipt" WHERE "noticeId" = ${noticeId}) AS visible_receipts,
+        now() AS database_now
     `;
   });
 }
@@ -268,6 +309,43 @@ async function main() {
 
       const adminId = "00000000-0000-4000-8000-000000000001";
       const residentId = "00000000-0000-4000-8000-000000000002";
+      const otherResidentId = "00000000-0000-4000-8000-000000000003";
+      const otherResident = await prisma.user.create({
+        data: {
+          id: otherResidentId,
+          email: "residente-calle5@vela.demo",
+          fullName: "Residente Calle 5",
+        },
+      });
+      const otherMembership = await prisma.membership.create({
+        data: { tenantId: tenantAId, userId: otherResident.id },
+      });
+      await prisma.membershipRole.create({
+        data: { membershipId: otherMembership.id, role: RoleName.RESIDENTE },
+      });
+      const otherDwelling = await prisma.dwelling.create({
+        data: {
+          tenantId: tenantAId,
+          code: "Casa 13",
+          zone: "Calle 5",
+        },
+      });
+      await prisma.household.create({
+        data: {
+          tenantId: tenantAId,
+          dwellingId: otherDwelling.id,
+          name: "Familia Calle 5",
+          members: {
+            create: {
+              tenantId: tenantAId,
+              userId: otherResident.id,
+              fullName: otherResident.fullName ?? "Residente Calle 5",
+              relation: "PROPIETARIO",
+              isPrimary: true,
+            },
+          },
+        },
+      });
       const adminMembership = await prisma.membership.findUniqueOrThrow({
         where: { tenantId_userId: { tenantId: tenantAId, userId: adminId } },
       });
@@ -286,6 +364,99 @@ async function main() {
       });
       if (auditedRoleChanges !== 1)
         throw new Error("El cambio de rol no genero un AuditLog");
+
+      const noticeNow = new Date();
+      const publishedNotice = await createNotice(
+        prisma,
+        {
+          tenantId: tenantAId,
+          actorId: adminId,
+          type: NoticeType.ALERTA_CRITICA,
+          title: "Corte temporal en Calle 4",
+          body: "El servicio de agua se suspenderá por mantenimiento preventivo.",
+          audience: { scope: "ZONE", values: ["Calle 4"] },
+          channels: [NotificationChannel.IN_APP],
+          requiresReadReceipt: true,
+          publishedAt: new Date(noticeNow.getTime() - 60_000),
+        },
+        noticeNow,
+      );
+      const [residentNotices, otherResidentNotices, adminNotices] =
+        await Promise.all([
+          visibleNotices(prisma, residentId),
+          visibleNotices(prisma, otherResidentId),
+          visibleNotices(prisma, adminId),
+        ]);
+      if (
+        publishedNotice.recipientCount !== 1 ||
+        residentNotices.length !== 1 ||
+        otherResidentNotices.length !== 0 ||
+        adminNotices.length !== 1
+      ) {
+        const diagnostics = await noticeRlsDiagnostics(
+          prisma,
+          residentId,
+          publishedNotice.notice.id,
+        );
+        throw new Error(
+          `Segmentación/RLS de avisos inválida: destinatarios=${publishedNotice.recipientCount}, residente=${residentNotices.length}, fuera=${otherResidentNotices.length}, admin=${adminNotices.length}, aviso=${JSON.stringify(publishedNotice.notice)}, diagnóstico=${JSON.stringify(diagnostics)}`,
+        );
+      }
+      await markNoticeRead(
+        prisma,
+        {
+          tenantId: tenantAId,
+          noticeId: publishedNotice.notice.id,
+          userId: residentId,
+        },
+        noticeNow,
+      );
+      const [receipt, inAppNotification] = await Promise.all([
+        prisma.noticeReceipt.findUniqueOrThrow({
+          where: {
+            noticeId_userId: {
+              noticeId: publishedNotice.notice.id,
+              userId: residentId,
+            },
+          },
+        }),
+        prisma.notification.findFirstOrThrow({
+          where: {
+            tenantId: tenantAId,
+            userId: residentId,
+            linkUrl: `/avisos/${publishedNotice.notice.id}`,
+          },
+        }),
+      ]);
+      if (!receipt.readAt || !inAppNotification.readAt)
+        throw new Error(
+          "El acuse de lectura no sincronizó aviso y notificación",
+        );
+
+      const scheduledAt = new Date(noticeNow.getTime() + 60 * 60 * 1000);
+      const scheduled = await createNotice(
+        prisma,
+        {
+          tenantId: tenantAId,
+          actorId: adminId,
+          type: NoticeType.COMUNICADO_ADMIN,
+          title: "Asamblea mensual programada",
+          body: "La asamblea mensual se realizará en el salón comunitario.",
+          audience: { scope: "ROLE", values: [RoleName.RESIDENTE] },
+          channels: [NotificationChannel.IN_APP],
+          requiresReadReceipt: true,
+          publishedAt: scheduledAt,
+        },
+        noticeNow,
+      );
+      if (scheduled.notice.deliveredAt)
+        throw new Error("El aviso programado se publicó antes de tiempo");
+      const due = await publishDueNotices(
+        prisma,
+        new Date(scheduledAt.getTime() + 1_000),
+      );
+      if (due.length !== 1 || due[0]?.recipientCount !== 2)
+        throw new Error("El procesador no publicó el aviso programado");
 
       const ticketInput = {
         tenantId: tenantAId,
@@ -554,7 +725,7 @@ async function main() {
         );
 
       console.log(
-        "✓ Migraciones, RLS, correlativo, SLA, moderación, duplicados, rate limit y auditoría verificados",
+        "✓ Migraciones, RLS, correlativo, SLA, moderación, avisos segmentados/programados, notificaciones, rate limit y auditoría verificados",
       );
     } finally {
       await prisma.$disconnect();
