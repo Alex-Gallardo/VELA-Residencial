@@ -6,7 +6,7 @@ export function GET() {
   return NextResponse.json({
     service: "vela-web",
     status: "ok",
-    sprint: 0,
+    sprint: 3,
     integrations: {
       supabase: Boolean(
         process.env.NEXT_PUBLIC_SUPABASE_URL &&

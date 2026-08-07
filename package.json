@@ -18,12 +18,16 @@
     "db:seed": "prisma db seed",
     "verify:database": "tsx scripts/verify-database.ts",
     "verify:services": "tsx scripts/verify-services.ts",
+    "verify:sprint3:cloud": "tsx scripts/verify-sprint-3-cloud.ts",
     "e2e:fixture:setup": "tsx scripts/sprint-1-e2e-fixture.ts setup",
     "e2e:fixture:verify": "tsx scripts/sprint-1-e2e-fixture.ts verify",
     "e2e:fixture:cleanup": "tsx scripts/sprint-1-e2e-fixture.ts cleanup",
     "e2e:sprint2:setup": "tsx scripts/sprint-2-e2e-fixture.ts setup",
     "e2e:sprint2:verify": "tsx scripts/sprint-2-e2e-fixture.ts verify",
     "e2e:sprint2:cleanup": "tsx scripts/sprint-2-e2e-fixture.ts cleanup",
+    "e2e:sprint3:verify-pending": "tsx scripts/sprint-3-e2e.ts verify-pending",
+    "e2e:sprint3:verify-approved": "tsx scripts/sprint-3-e2e.ts verify-approved",
+    "e2e:sprint3:cleanup-storage": "tsx scripts/sprint-3-e2e.ts cleanup-storage",
     "prepare": "husky"
   },
   "dependencies": {
@@ -44,6 +48,7 @@
     "react": "19.1.1",
     "react-dom": "19.1.1",
     "server-only": "0.0.1",
+    "sharp": "0.35.0",
     "tailwind-merge": "2.6.0",
     "zod": "3.25.76",
     "zustand": "^5.0.14"
@@ -71,6 +76,6 @@
   },
   "overrides": {
     "postcss": "8.5.23",
-    "sharp": "0.35.0"
+    "sharp": "$sharp"
   }
 }

@@ -37,7 +37,7 @@ async function verifyTelemetry() {
     throw new Error("Faltan NEXT_PUBLIC_SENTRY_DSN o NEXT_PUBLIC_POSTHOG_KEY");
 
   Sentry.init({ dsn: sentryDsn });
-  Sentry.captureMessage("VELA Sprint 0 verification");
+  Sentry.captureMessage("VELA Sprint 3 verification");
   if (!(await Sentry.flush(5_000)))
     throw new Error("Sentry no confirmó el envío dentro del tiempo límite");
 
@@ -45,9 +45,9 @@ async function verifyTelemetry() {
     host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com",
   });
   posthog.capture({
-    distinctId: "sprint-0-verifier",
+    distinctId: "sprint-3-verifier",
     event: "telemetry_test",
-    properties: { sprint: 0 },
+    properties: { sprint: 3 },
   });
   await posthog.shutdown();
 }

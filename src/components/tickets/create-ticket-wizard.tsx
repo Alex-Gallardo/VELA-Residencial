@@ -4,15 +4,28 @@ import type { TicketCategory } from "@prisma/client";
 import {
   ArrowLeft,
   ArrowRight,
+  Camera,
   CheckCircle2,
+  Loader2,
   MapPin,
   Send,
+  Trash2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 
 import { ticketCategoryLabels } from "@/config/tickets";
 import { capture } from "@/lib/analytics";
+import { createClient } from "@/lib/supabase/client";
+import {
+  allowedImageMimeTypes,
+  MAX_ATTACHMENT_BYTES,
+} from "@/lib/validations/attachment";
+import {
+  discardAttachmentAction,
+  finalizeAttachmentAction,
+  initializeAttachmentAction,
+} from "@/server/actions/attachments";
 import {
   createTicketAction,
   type CreateTicketActionState,
@@ -35,6 +48,10 @@ export function CreateTicketWizard({
   const handledTicketId = useRef<string | undefined>(undefined);
   const [hasHydrated, setHasHydrated] = useState(false);
   const [clientError, setClientError] = useState<string>();
+  const [attachmentId, setAttachmentId] = useState<string>();
+  const [attachmentName, setAttachmentName] = useState<string>();
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string>();
   const [state, formAction, pending] = useActionState(
     createTicketAction,
     initialActionState,
@@ -73,6 +90,81 @@ export function CreateTicketWizard({
     }
     setClientError(undefined);
     draft.setDraft({ step: 3 });
+  }
+
+  async function selectImage(file: File | undefined) {
+    if (!file) return;
+    setUploadError(undefined);
+    if (
+      !allowedImageMimeTypes.includes(
+        file.type as (typeof allowedImageMimeTypes)[number],
+      )
+    ) {
+      setUploadError("Solo puedes adjuntar una imagen JPG, PNG o WebP.");
+      return;
+    }
+    if (file.size === 0 || file.size > MAX_ATTACHMENT_BYTES) {
+      setUploadError("La imagen debe pesar menos de 6 MB.");
+      return;
+    }
+    setUploading(true);
+    try {
+      if (attachmentId) {
+        const discarded = await discardAttachmentAction({ attachmentId });
+        if (!discarded.success)
+          throw new Error(
+            "La imagen anterior todavía se está procesando. Intenta nuevamente.",
+          );
+      }
+      const initialized = await initializeAttachmentAction({
+        fileName: file.name,
+        mimeType: file.type,
+        sizeBytes: file.size,
+      });
+      if (!initialized.success) throw new Error(initialized.error);
+      const { error } = await createClient()
+        .storage.from("attachments")
+        .uploadToSignedUrl(initialized.path, initialized.token, file, {
+          contentType: file.type,
+          upsert: false,
+        });
+      if (error) {
+        await discardAttachmentAction({
+          attachmentId: initialized.attachmentId,
+        }).catch(() => undefined);
+        throw new Error("No se pudo cargar la imagen privada.");
+      }
+      const finalized = await finalizeAttachmentAction({
+        attachmentId: initialized.attachmentId,
+      });
+      if (!finalized.success) throw new Error(finalized.error);
+      setAttachmentId(initialized.attachmentId);
+      setAttachmentName(file.name);
+      capture("report_image_uploaded", { size_bytes: file.size });
+    } catch (error) {
+      setAttachmentId(undefined);
+      setAttachmentName(undefined);
+      setUploadError(
+        error instanceof Error ? error.message : "No se pudo cargar la imagen.",
+      );
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function removeImage() {
+    const currentId = attachmentId;
+    setUploadError(undefined);
+    if (!currentId) return;
+    const result = await discardAttachmentAction({ attachmentId: currentId });
+    if (!result.success) {
+      setUploadError(
+        "La imagen se está procesando. Intenta quitarla nuevamente en unos segundos.",
+      );
+      return;
+    }
+    setAttachmentId(undefined);
+    setAttachmentName(undefined);
   }
 
   if (!hasHydrated) {
@@ -120,6 +212,12 @@ export function CreateTicketWizard({
         <input type="hidden" name="description" value={draft.description} />
         <input type="hidden" name="locationText" value={draft.locationText} />
         <input type="hidden" name="dwellingId" value={dwellingId} />
+        <input type="hidden" name="attachmentId" value={attachmentId ?? ""} />
+        <input
+          type="hidden"
+          name="duplicateOfId"
+          value={state.duplicate?.id ?? ""}
+        />
 
         {draft.step === 1 && (
           <fieldset>
@@ -201,6 +299,63 @@ export function CreateTicketWizard({
                   }
                 />
               </label>
+              <div className="rounded-lg border border-dashed bg-background p-4">
+                <div className="flex items-start gap-3">
+                  <Camera
+                    className="mt-0.5 size-5 shrink-0 text-brand"
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">
+                      Foto del problema{" "}
+                      <span className="text-muted">(opcional)</span>
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-muted">
+                      JPG, PNG o WebP · máximo 6 MB. Eliminamos metadatos y la
+                      imagen no será visible hasta ser aprobada.
+                    </p>
+                    {!attachmentName ? (
+                      <label className="mt-3 inline-flex min-h-11 cursor-pointer items-center rounded-md border bg-surface px-4 text-sm font-medium">
+                        {uploading && (
+                          <Loader2
+                            className="mr-2 size-4 animate-spin"
+                            aria-hidden="true"
+                          />
+                        )}
+                        {uploading ? "Cargando…" : "Seleccionar foto"}
+                        <input
+                          className="sr-only"
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          disabled={uploading}
+                          onChange={(event) =>
+                            void selectImage(event.target.files?.[0])
+                          }
+                        />
+                      </label>
+                    ) : (
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-surface px-3 py-2">
+                        <span className="truncate text-sm">
+                          {attachmentName}
+                        </span>
+                        <button
+                          className="inline-flex min-h-11 items-center gap-2 px-2 text-sm text-danger"
+                          type="button"
+                          onClick={() => void removeImage()}
+                        >
+                          <Trash2 className="size-4" aria-hidden="true" />{" "}
+                          Quitar
+                        </button>
+                      </div>
+                    )}
+                    {uploadError && (
+                      <p className="mt-3 text-sm text-danger" role="alert">
+                        {uploadError}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
             <p className="mt-4 text-xs text-muted" role="status">
               Borrador guardado automáticamente en este dispositivo.
@@ -213,6 +368,7 @@ export function CreateTicketWizard({
             <button
               className="mt-7 flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-brand px-5 font-medium text-white"
               type="button"
+              disabled={uploading}
               onClick={continueToReview}
             >
               Revisar reporte{" "}
@@ -274,11 +430,34 @@ export function CreateTicketWizard({
                 </dt>
                 <dd className="mt-1">{draft.locationText || dwellingCode}</dd>
               </div>
+              {attachmentName && (
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-faint">
+                    Imagen
+                  </dt>
+                  <dd className="mt-1 font-medium">
+                    {attachmentName} · revisión privada en segundo plano
+                  </dd>
+                </div>
+              )}
             </dl>
             {state.error && (
               <p className="mt-4 text-sm text-danger" role="alert">
                 {state.error}
               </p>
+            )}
+            {state.duplicate && (
+              <div className="mt-4 rounded-md border border-warning/40 bg-warning/10 p-4 text-sm">
+                <p className="font-medium">
+                  Posible duplicado: #
+                  {String(state.duplicate.number).padStart(4, "0")} ·{" "}
+                  {state.duplicate.title}
+                </p>
+                <p className="mt-1 text-muted">
+                  Si no describe el mismo problema, vuelve a enviar para crear
+                  el reporte vinculado.
+                </p>
+              </div>
             )}
             <button
               className="mt-7 flex min-h-12 w-full items-center justify-center gap-2 rounded-md bg-brand px-5 font-medium text-white disabled:opacity-60"
@@ -286,7 +465,11 @@ export function CreateTicketWizard({
               disabled={pending}
             >
               <Send className="size-4" aria-hidden="true" />
-              {pending ? "Enviando…" : "Enviar reporte"}
+              {pending
+                ? "Enviando…"
+                : state.duplicate
+                  ? "Enviar de todos modos"
+                  : "Enviar reporte"}
             </button>
           </div>
         )}

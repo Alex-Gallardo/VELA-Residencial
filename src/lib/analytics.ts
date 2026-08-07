@@ -4,6 +4,7 @@ export type AnalyticsEvent =
   | "sprint_0_loaded"
   | "telemetry_test"
   | "report_flow_opened"
+  | "report_image_uploaded"
   | "ticket_created";
 
 export function capture(

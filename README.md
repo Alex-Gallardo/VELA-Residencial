@@ -1,15 +1,16 @@
 # Vela
 
-Vela es una plataforma SaaS multi-tenant de operación residencial. El repositorio contiene las fundaciones de SPRINT-0, la identidad y acceso de SPRINT-1 y el flujo operativo de reportes de SPRINT-2.
+Vela es una plataforma SaaS multi-tenant de operación residencial. El repositorio contiene las fundaciones de SPRINT-0, identidad y acceso de SPRINT-1, el flujo operativo de reportes de SPRINT-2 y adjuntos seguros con moderación de SPRINT-3.
 
-## SPRINT-2 disponible
+## SPRINT-3 disponible
 
-- Creación de reportes en tres pasos con borrador persistente.
-- Correlativo único `#NNN` por residencial protegido ante concurrencia.
-- Listado y detalle residente con filtros, estado, SLA e historial.
-- Bandeja administrativa con filtros, asignación y máquina de estados.
-- Comentarios visibles y notas internas separadas por aplicación y RLS.
-- SLA calculado desde `CategoryConfig` y auditoría de acciones operativas.
+- Foto opcional cargada directamente a un bucket privado de Supabase mediante URL firmada.
+- Validación de tipo, peso, contenido real, resolución y firmas peligrosas.
+- Conversión a WebP que elimina EXIF y otros metadatos antes de cualquier visualización.
+- Pipeline idempotente con estados recuperables, hash SHA-256 y detección de imágenes repetidas.
+- Adaptador de proveedor desacoplado; el modo actual `deferred` envía todo a revisión humana.
+- Cola `/admin/moderacion` exclusiva para moderador/administrador, con decisiones auditadas.
+- Rate limit por residente y detección/confirmación de reportes posiblemente duplicados.
 
 El registro público no existe: una cuenta nueva sólo puede originarse desde un enlace de invitación válido.
 
@@ -35,11 +36,12 @@ La aplicación queda en `http://localhost:3000`; el estado técnico, en `http://
 ```bash
 npm run check
 npm run verify:database
+npm run verify:sprint3:cloud
 npm run build
 npm run verify:services
 ```
 
-`verify:database` levanta PostgreSQL temporal, aplica todas las migraciones, ejecuta dos veces el seed y demuestra aislamiento entre tenants. Además prueba numeración concurrente, SLA, ciclo de estados, privacidad de notas internas y auditoría.
+`verify:database` levanta PostgreSQL temporal, aplica todas las migraciones, ejecuta dos veces el seed y demuestra aislamiento entre tenants. Además prueba numeración concurrente, SLA, ciclo de estados, privacidad, RLS de adjuntos/moderación, duplicados, rate limit y auditoría.
 
 ## Seguridad
 
@@ -48,5 +50,7 @@ npm run verify:services
 - El `tenantId` efectivo se deriva de la sesión; nunca se confía en el navegador.
 - RLS es la barrera final aunque falle una validación de aplicación.
 - Los tokens de invitación se almacenan únicamente como SHA-256.
+- Nunca se firma ni muestra el archivo original: sólo la copia normalizada y aprobada.
+- Las URL de lectura privada vencen a los cinco minutos.
 
-Consulta [docs/sprint-2.md](docs/sprint-2.md) para la trazabilidad de tickets y criterios de aceptación. Las entregas anteriores permanecen documentadas en `docs/sprint-0.md` y `docs/sprint-1.md`.
+Consulta [docs/sprint-3.md](docs/sprint-3.md) para la trazabilidad, arquitectura y operación. Las entregas anteriores permanecen documentadas en `docs/sprint-0.md`, `docs/sprint-1.md` y `docs/sprint-2.md`.

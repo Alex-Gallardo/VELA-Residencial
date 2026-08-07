@@ -20,6 +20,7 @@ export type Resource =
   | "notice"
   | "document"
   | "notification"
+  | "moderation"
   | "audit_log";
 
 export type PermissionUser = {
@@ -72,6 +73,8 @@ const permissions: Record<RoleName, readonly Rule[]> = {
     "moderate:ticket",
     "read:notice",
     "read:document",
+    "read:moderation",
+    "moderate:moderation",
   ],
   SEGURIDAD: [
     "read:tenant",

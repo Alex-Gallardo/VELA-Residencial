@@ -7,6 +7,8 @@ export const createTicketSchema = z.object({
   description: z.string().trim().min(10).max(2000),
   locationText: z.string().trim().max(160).optional(),
   dwellingId: z.string().trim().min(1),
+  attachmentId: z.string().uuid().optional(),
+  duplicateOfId: z.string().trim().min(1).optional(),
 });
 
 export const ticketCommentSchema = z.object({
