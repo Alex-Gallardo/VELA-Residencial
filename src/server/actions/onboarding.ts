@@ -216,6 +216,8 @@ export async function completeOnboardingAction(formData: FormData) {
           fullName: parsed.data.fullName,
           relation: invitation.relation!,
           isPrimary: true,
+          active: true,
+          leftAt: null,
         },
       });
     } else {

@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   ArrowRight,
+  BookOpenText,
   ClipboardList,
   Megaphone,
   PlusCircle,
@@ -112,6 +113,27 @@ export default async function DashboardPage({
               <PlusCircle className="size-4" aria-hidden="true" /> Crear reporte
             </Link>
           )}
+          {can(context.membership, "read", "document") && (
+            <Link
+              className="inline-flex min-h-11 items-center gap-2 rounded-md border px-5 font-medium"
+              href="/reglamento"
+            >
+              <BookOpenText className="size-4" aria-hidden="true" /> Reglamento
+            </Link>
+          )}
+          {can(context.membership, "read", "ticket") &&
+            context.membership.roles.some(
+              ({ role, expiresAt }) =>
+                role !== "RESIDENTE" && (!expiresAt || expiresAt > now),
+            ) && (
+              <Link
+                className="inline-flex min-h-11 items-center gap-2 rounded-md border px-5 font-medium"
+                href="/admin"
+              >
+                Dashboard operativo
+                <ArrowRight className="size-4" aria-hidden="true" />
+              </Link>
+            )}
           {can(context.membership, "triage", "ticket") && (
             <Link
               className="inline-flex min-h-11 items-center gap-2 rounded-md border px-5 font-medium"

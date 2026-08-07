@@ -1,7 +1,7 @@
 "use client";
 
 import { BellRing, BellOff } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   removePushSubscriptionAction,
@@ -17,14 +17,34 @@ function urlBase64ToUint8Array(value: string) {
 
 export function PushSubscriptionManager({
   publicKey,
-  hasSubscription,
+  hasAnySubscription,
 }: {
   publicKey?: string;
-  hasSubscription: boolean;
+  hasAnySubscription: boolean;
 }) {
-  const [enabled, setEnabled] = useState(hasSubscription);
+  const [enabled, setEnabled] = useState(false);
+  const [checkedDevice, setCheckedDevice] = useState(false);
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
+  useEffect(() => {
+    let active = true;
+    if (!("serviceWorker" in navigator)) {
+      setCheckedDevice(true);
+      return;
+    }
+    void navigator.serviceWorker
+      .getRegistration("/vela-sw.js")
+      .then((registration) => registration?.pushManager.getSubscription())
+      .then((subscription) => {
+        if (active) {
+          setEnabled(Boolean(subscription));
+          setCheckedDevice(true);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   async function enablePush() {
     if (
       !publicKey ||
@@ -43,10 +63,12 @@ export function PushSubscriptionManager({
       }
       const registration =
         await navigator.serviceWorker.register("/vela-sw.js");
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
+      const subscription =
+        (await registration.pushManager.getSubscription()) ??
+        (await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        }));
       const result = await savePushSubscriptionAction(
         subscription.toJSON(),
         navigator.userAgent,
@@ -86,13 +108,19 @@ export function PushSubscriptionManager({
         <div>
           <p className="font-medium">Web Push en este dispositivo</p>
           <p className="mt-1 text-xs text-muted">
-            {enabled ? "Suscripción activa" : "Suscripción inactiva"}
+            {!checkedDevice
+              ? "Comprobando este dispositivo…"
+              : enabled
+                ? "Suscripción activa en este dispositivo"
+                : hasAnySubscription
+                  ? "Activa en otro dispositivo"
+                  : "Suscripción inactiva"}
           </p>
         </div>
         <button
           className="inline-flex min-h-11 items-center gap-2 rounded-md border bg-surface px-4 text-sm font-medium disabled:opacity-60"
           type="button"
-          disabled={pending}
+          disabled={pending || !checkedDevice}
           onClick={enabled ? disablePush : enablePush}
         >
           {enabled ? (

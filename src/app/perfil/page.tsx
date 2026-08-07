@@ -131,7 +131,7 @@ export default async function ProfilePage({
         <div className="mt-7">
           <PushSubscriptionManager
             publicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY}
-            hasSubscription={pushCount > 0}
+            hasAnySubscription={pushCount > 0}
           />
         </div>
       </section>

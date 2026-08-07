@@ -8,6 +8,7 @@ import { noticeTypeLabels } from "@/config/notices";
 import { getAuthContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
+import { DEFAULT_TENANT_CHANNELS } from "@/server/services/tenant-settings";
 
 function localDateTimeValue(date: Date) {
   return new Intl.DateTimeFormat("sv-SE", {
@@ -33,7 +34,7 @@ export default async function AdminNoticesPage({
   if (!context.membership || !can(context.membership, "create", "notice"))
     redirect("/inicio?denied=1");
 
-  const [dwellings, notices] = await Promise.all([
+  const [dwellings, notices, settings] = await Promise.all([
     db.dwelling.findMany({
       where: { tenantId: context.membership.tenantId },
       orderBy: { code: "asc" },
@@ -44,6 +45,10 @@ export default async function AdminNoticesPage({
       include: { receipts: { select: { readAt: true } } },
       orderBy: { createdAt: "desc" },
       take: 30,
+    }),
+    db.tenantSettings.findUnique({
+      where: { tenantId: context.membership.tenantId },
+      select: { notificationChannels: true },
     }),
   ]);
   const zones = [
@@ -67,6 +72,9 @@ export default async function AdminNoticesPage({
             zones={zones}
             dwellings={dwellings}
             defaultPublishedAt={localDateTimeValue(new Date())}
+            availableChannels={
+              settings?.notificationChannels ?? DEFAULT_TENANT_CHANNELS
+            }
           />
         </section>
 

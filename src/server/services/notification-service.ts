@@ -9,6 +9,7 @@ import {
   defaultDeliveryPreferences,
   isChannelEnabled,
 } from "@/server/services/notification-preferences";
+import { getTenantNotificationChannels } from "@/server/services/tenant-settings";
 
 export async function enqueueUserNotification(
   database: PrismaClient,
@@ -27,7 +28,7 @@ export async function enqueueUserNotification(
     NotificationChannel.PUSH,
     NotificationChannel.EMAIL,
   ];
-  const [preferences, pushCount] = await Promise.all([
+  const [preferences, pushCount, tenantChannels] = await Promise.all([
     database.notificationPreference.findUnique({
       where: {
         tenantId_userId: {
@@ -39,10 +40,12 @@ export async function enqueueUserNotification(
     database.pushSubscription.count({
       where: { tenantId: input.tenantId, userId: input.userId },
     }),
+    getTenantNotificationChannels(database, input.tenantId),
   ]);
   const effective = preferences ?? defaultDeliveryPreferences;
   const enabledChannels = channels.filter(
     (channel) =>
+      tenantChannels.includes(channel) &&
       isChannelEnabled(effective, channel) &&
       (channel !== NotificationChannel.PUSH || pushCount > 0),
   );

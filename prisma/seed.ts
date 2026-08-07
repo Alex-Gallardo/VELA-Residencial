@@ -93,6 +93,21 @@ async function main() {
     },
   });
 
+  await Promise.all([
+    prisma.zoneConfig.upsert({
+      where: {
+        tenantId_name: { tenantId: tenant.id, name: "Calle 4" },
+      },
+      update: { active: true },
+      create: { tenantId: tenant.id, name: "Calle 4" },
+    }),
+    prisma.tenantSettings.upsert({
+      where: { tenantId: tenant.id },
+      update: {},
+      create: { tenantId: tenant.id },
+    }),
+  ]);
+
   await prisma.household.upsert({
     where: { id: DEMO.householdId },
     update: { active: true, name: "Familia Residente" },

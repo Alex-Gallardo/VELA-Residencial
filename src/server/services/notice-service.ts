@@ -14,6 +14,7 @@ import {
   defaultDeliveryPreferences,
   isChannelEnabled,
 } from "@/server/services/notification-preferences";
+import { getTenantNotificationChannels } from "@/server/services/tenant-settings";
 
 type DatabaseClient = PrismaClient | Prisma.TransactionClient;
 
@@ -50,7 +51,7 @@ async function resolveRecipients(
       user: {
         include: {
           householdMembers: {
-            where: { tenantId, household: { active: true } },
+            where: { tenantId, active: true, household: { active: true } },
             include: { household: { include: { dwelling: true } } },
           },
         },
@@ -100,7 +101,7 @@ async function publishNoticeRows(
     audience,
     now,
   );
-  const [preferences, pushSubscriptions] = await Promise.all([
+  const [preferences, pushSubscriptions, tenantSettings] = await Promise.all([
     transaction.notificationPreference.findMany({
       where: {
         tenantId: notice.tenantId,
@@ -114,7 +115,16 @@ async function publishNoticeRows(
       },
       select: { userId: true },
     }),
+    transaction.tenantSettings.findUnique({
+      where: { tenantId: notice.tenantId },
+      select: { notificationChannels: true },
+    }),
   ]);
+  const tenantChannels =
+    tenantSettings?.notificationChannels ??
+    (Object.values(NotificationChannel).filter(
+      (channel) => channel !== NotificationChannel.SMS,
+    ) as NotificationChannel[]);
   const preferencesByUser = new Map(
     preferences.map((preference) => [preference.userId, preference]),
   );
@@ -139,6 +149,7 @@ async function publishNoticeRows(
         preferencesByUser.get(user.id) ?? defaultDeliveryPreferences;
       return notice.channels
         .filter((channel) => {
+          if (!tenantChannels.includes(channel)) return false;
           if (
             channel === NotificationChannel.IN_APP &&
             notice.type === NoticeType.ALERTA_CRITICA
@@ -198,6 +209,17 @@ export async function createNotice(
   input: NoticeCreationInput,
   now = new Date(),
 ) {
+  const tenantChannels = await getTenantNotificationChannels(
+    database,
+    input.tenantId,
+  );
+  const disabledChannel = input.channels.find(
+    (channel) => !tenantChannels.includes(channel),
+  );
+  if (disabledChannel)
+    throw new NoticeServiceError(
+      "Uno de los canales seleccionados está desactivado en la configuración.",
+    );
   const notice = await database.$transaction(async (transaction) => {
     const created = await transaction.notice.create({
       data: {

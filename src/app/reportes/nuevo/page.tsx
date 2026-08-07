@@ -15,6 +15,7 @@ export default async function NewTicketPage() {
       where: {
         tenantId: context.membership.tenantId,
         userId: context.user.id,
+        active: true,
         household: { active: true },
       },
       include: { household: { include: { dwelling: true } } },

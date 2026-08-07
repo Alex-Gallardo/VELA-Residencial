@@ -139,6 +139,8 @@ model Tenant {
   notificationPreferences NotificationPreference[]
   pushSubscriptions       PushSubscription[]
   documents               Document[]
+  settings                TenantSettings?
+  zones                   ZoneConfig[]
   invitations             Invitation[]
   auditLogs               AuditLog[]
   categories              CategoryConfig[]
@@ -168,6 +170,7 @@ model User {
   auditLogs               AuditLog[]
   attachmentsUploaded     Attachment[]             @relation("AttachmentUploadedBy")
   moderationReviews       ModerationItem[]         @relation("ModerationReviewedBy")
+  documentsUploaded       Document[]               @relation("DocumentUploadedBy")
 }
 
 model Membership {
@@ -239,6 +242,8 @@ model HouseholdMember {
   fullName    String
   relation    HouseholdRelation
   isPrimary   Boolean           @default(false)
+  active      Boolean           @default(true)
+  leftAt      DateTime?
   createdAt   DateTime          @default(now())
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
@@ -462,17 +467,25 @@ model PushSubscription {
 }
 
 model Document {
-  id         String   @id @default(cuid())
-  tenantId   String
-  title      String
-  category   String
-  storageKey String
-  version    Int      @default(1)
-  createdAt  DateTime @default(now())
+  id           String   @id @default(cuid())
+  tenantId     String
+  seriesId     String
+  title        String
+  category     String
+  storageKey   String   @unique
+  mimeType     String   @default("application/pdf")
+  sizeBytes    Int      @default(0)
+  version      Int      @default(1)
+  isCurrent    Boolean  @default(true)
+  publishedAt  DateTime @default(now())
+  uploadedById String?
+  createdAt    DateTime @default(now())
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  uploadedBy User?  @relation("DocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
 
-  @@index([tenantId])
+  @@unique([tenantId, seriesId, version])
+  @@index([tenantId, category, isCurrent, publishedAt])
 }
 
 model Invitation {
@@ -521,4 +534,29 @@ model CategoryConfig {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, category])
+}
+
+model ZoneConfig {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name])
+  @@index([tenantId, active])
+}
+
+model TenantSettings {
+  id                   String                @id @default(cuid())
+  tenantId             String                @unique
+  notificationChannels NotificationChannel[] @default([IN_APP, PUSH, EMAIL])
+  emergencyContacts    String[]              @default([])
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }

@@ -17,10 +17,12 @@ export function NoticeForm({
   zones,
   dwellings,
   defaultPublishedAt,
+  availableChannels,
 }: {
   zones: string[];
   dwellings: Array<{ id: string; code: string; zone: string | null }>;
   defaultPublishedAt: string;
+  availableChannels: NotificationChannel[];
 }) {
   const [scope, setScope] = useState<AudienceScope>("ALL");
   const [timezoneOffset, setTimezoneOffset] = useState(360);
@@ -119,11 +121,7 @@ export function NoticeForm({
       <fieldset>
         <legend className="text-sm font-medium">Canales</legend>
         <div className="mt-2 grid gap-2 sm:grid-cols-3">
-          {[
-            NotificationChannel.IN_APP,
-            NotificationChannel.PUSH,
-            NotificationChannel.EMAIL,
-          ].map((channel) => (
+          {availableChannels.map((channel) => (
             <label
               key={channel}
               className="flex min-h-11 items-center gap-2 rounded-md border bg-background px-3 text-sm"

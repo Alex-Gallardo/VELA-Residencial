@@ -77,6 +77,7 @@ export async function createTicket(
         where: {
           tenantId: input.tenantId,
           userId: input.userId,
+          active: true,
           household: {
             active: true,
             dwellingId: input.dwellingId,
