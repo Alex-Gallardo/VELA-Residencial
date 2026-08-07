@@ -4,8 +4,21 @@ import { createServer } from "node:net";
 import { arch, platform, tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 
-import { PrismaClient } from "@prisma/client";
+import {
+  PrismaClient,
+  RoleName,
+  TicketCategory,
+  TicketStatus,
+} from "@prisma/client";
 import EmbeddedPostgres from "embedded-postgres";
+
+import { grantMembershipRole } from "../src/server/services/membership-service";
+import {
+  addTicketComment,
+  assignTicket,
+  createTicket,
+  transitionTicket,
+} from "../src/server/services/ticket-service";
 
 const DATABASE_NAME = "vela_test";
 const DATABASE_USER = "postgres";
@@ -28,11 +41,71 @@ async function findFreePort() {
 
 function runNpm(args: string[]) {
   const npmCli = process.env.npm_execpath;
-  if (!npmCli) throw new Error("npm_execpath no está disponible");
+  if (!npmCli) throw new Error("npm_execpath no esta disponible");
   execFileSync(process.execPath, [npmCli, ...args], {
     cwd: process.cwd(),
     env: process.env,
     stdio: "inherit",
+  });
+}
+
+async function bootstrapSupabasePrimitives(databaseUrl: string) {
+  const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
+  try {
+    await prisma.$executeRawUnsafe("CREATE SCHEMA IF NOT EXISTS auth");
+    await prisma.$executeRawUnsafe(`
+      DO $$
+      BEGIN
+        CREATE ROLE authenticated NOLOGIN;
+      EXCEPTION WHEN duplicate_object THEN
+        NULL;
+      END
+      $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION auth.uid()
+      RETURNS uuid
+      LANGUAGE sql
+      STABLE
+      AS $$
+        SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
+      $$
+    `);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+async function visibleDwellingTenants(prisma: PrismaClient, userId: string) {
+  return prisma.$transaction(async (transaction) => {
+    await transaction.$executeRawUnsafe("SET LOCAL ROLE authenticated");
+    await transaction.$executeRawUnsafe(
+      "SELECT set_config('request.jwt.claim.sub', $1, true)",
+      userId,
+    );
+    return transaction.$queryRaw<Array<{ tenantId: string }>>`
+      SELECT "tenantId" FROM "Dwelling" ORDER BY "tenantId"
+    `;
+  });
+}
+
+async function visibleTicketComments(
+  prisma: PrismaClient,
+  userId: string,
+  ticketId: string,
+) {
+  return prisma.$transaction(async (transaction) => {
+    await transaction.$executeRawUnsafe("SET LOCAL ROLE authenticated");
+    await transaction.$executeRawUnsafe(
+      "SELECT set_config('request.jwt.claim.sub', $1, true)",
+      userId,
+    );
+    return transaction.$queryRaw<Array<{ body: string; isInternal: boolean }>>`
+      SELECT "body", "isInternal"
+      FROM "TicketComment"
+      WHERE "ticketId" = ${ticketId}
+      ORDER BY "createdAt"
+    `;
   });
 }
 
@@ -43,9 +116,7 @@ async function stopPostgres(postgres: EmbeddedPostgres, databaseDir: string) {
   execFileSync(
     binaries.pg_ctl,
     ["stop", "-D", databaseDir, "-m", "fast", "-w"],
-    {
-      stdio: "inherit",
-    },
+    { stdio: "inherit" },
   );
   (postgres as unknown as { process?: undefined }).process = undefined;
 }
@@ -56,7 +127,7 @@ async function main() {
   const resolvedTemp = resolve(tmpdir()) + sep;
   const resolvedDatabaseDir = resolve(databaseDir);
   if (!resolvedDatabaseDir.startsWith(resolvedTemp))
-    throw new Error("Directorio temporal fuera del área permitida");
+    throw new Error("Directorio temporal fuera del area permitida");
 
   const postgres = new EmbeddedPostgres({
     databaseDir,
@@ -79,7 +150,8 @@ async function main() {
     process.env.DATABASE_URL = databaseUrl;
     process.env.DIRECT_URL = databaseUrl;
 
-    runNpm(["run", "db:migrate", "--", "--name", "init", "--skip-generate"]);
+    await bootstrapSupabasePrimitives(databaseUrl);
+    runNpm(["run", "db:deploy"]);
     runNpm(["run", "db:seed"]);
     runNpm(["run", "db:seed"]);
 
@@ -111,8 +183,192 @@ async function main() {
           `Seed inesperado: tenants=${tenants}, users=${users}, dwellings=${dwellings}, categories=${categories}, tickets=${tickets}`,
         );
       }
+
+      const tenantB = await prisma.tenant.create({
+        data: { name: "Residencial Encinos", slug: "encinos-rls-test" },
+      });
+      const userB = await prisma.user.create({
+        data: {
+          id: "00000000-0000-4000-8000-000000000099",
+          email: "rls-b@vela.demo",
+          fullName: "Usuario Tenant B",
+        },
+      });
+      const membershipB = await prisma.membership.create({
+        data: { tenantId: tenantB.id, userId: userB.id },
+      });
+      await prisma.membershipRole.create({
+        data: { membershipId: membershipB.id, role: RoleName.RESIDENTE },
+      });
+      await prisma.dwelling.create({
+        data: { tenantId: tenantB.id, code: "Casa B-1" },
+      });
+
+      const tenantAId = "vela_demo_tenant";
+      const [visibleToA, visibleToB] = await Promise.all([
+        visibleDwellingTenants(prisma, "00000000-0000-4000-8000-000000000002"),
+        visibleDwellingTenants(prisma, userB.id),
+      ]);
+      if (
+        visibleToA.length !== 1 ||
+        visibleToA[0]?.tenantId !== tenantAId ||
+        visibleToB.length !== 1 ||
+        visibleToB[0]?.tenantId !== tenantB.id
+      ) {
+        throw new Error(
+          `Aislamiento RLS invalido: A=${JSON.stringify(visibleToA)}, B=${JSON.stringify(visibleToB)}`,
+        );
+      }
+
+      const adminId = "00000000-0000-4000-8000-000000000001";
+      const residentId = "00000000-0000-4000-8000-000000000002";
+      const adminMembership = await prisma.membership.findUniqueOrThrow({
+        where: { tenantId_userId: { tenantId: tenantAId, userId: adminId } },
+      });
+      await grantMembershipRole(prisma, {
+        tenantId: tenantAId,
+        membershipId: adminMembership.id,
+        role: RoleName.FINANZAS,
+        actorId: adminId,
+      });
+      const auditedRoleChanges = await prisma.auditLog.count({
+        where: {
+          tenantId: tenantAId,
+          action: "membership.role_granted",
+          entityId: { not: null },
+        },
+      });
+      if (auditedRoleChanges !== 1)
+        throw new Error("El cambio de rol no genero un AuditLog");
+
+      const ticketInput = {
+        tenantId: tenantAId,
+        userId: residentId,
+        category: TicketCategory.MANTENIMIENTO,
+        description:
+          "La llave principal pierde agua continuamente desde esta manana.",
+        locationText: "Casa 12, entrada principal",
+        dwellingId: "vela_demo_dwelling_001",
+      };
+      const [firstCreatedTicket, secondCreatedTicket] = await Promise.all([
+        createTicket(prisma, {
+          ...ticketInput,
+          title: "Fuga en llave principal",
+        }),
+        createTicket(prisma, {
+          ...ticketInput,
+          title: "Revision de tuberia exterior",
+        }),
+      ]);
+      const consecutiveNumbers = [
+        firstCreatedTicket.number,
+        secondCreatedTicket.number,
+      ].sort((left, right) => left - right);
+      if (consecutiveNumbers[0] !== 2 || consecutiveNumbers[1] !== 3)
+        throw new Error(
+          `Correlativo concurrente invalido: ${consecutiveNumbers.join(", ")}`,
+        );
+      if (
+        !firstCreatedTicket.slaDueAt ||
+        firstCreatedTicket.slaDueAt.getTime() -
+          firstCreatedTicket.createdAt.getTime() !==
+          48 * 60 * 60 * 1000
+      )
+        throw new Error(
+          "El SLA de categoria no se calculo al crear el reporte",
+        );
+
+      await assignTicket(prisma, {
+        tenantId: tenantAId,
+        ticketId: firstCreatedTicket.id,
+        assigneeId: adminId,
+        actorId: adminId,
+      });
+      await transitionTicket(prisma, {
+        tenantId: tenantAId,
+        ticketId: firstCreatedTicket.id,
+        actorId: adminId,
+        toStatus: TicketStatus.EN_PROCESO,
+      });
+      const resolvedTicket = await transitionTicket(prisma, {
+        tenantId: tenantAId,
+        ticketId: firstCreatedTicket.id,
+        actorId: adminId,
+        toStatus: TicketStatus.RESUELTO,
+        note: "Reparacion finalizada",
+      });
+      if (!resolvedTicket.resolvedAt)
+        throw new Error("Resolver el reporte no registro resolvedAt");
+
+      const publicBody = "La reparacion fue completada y verificada.";
+      const internalBody = "Nota interna exclusiva para operaciones.";
+      await addTicketComment(prisma, {
+        tenantId: tenantAId,
+        ticketId: firstCreatedTicket.id,
+        authorId: adminId,
+        body: publicBody,
+        isInternal: false,
+        access: "staff",
+      });
+      await addTicketComment(prisma, {
+        tenantId: tenantAId,
+        ticketId: firstCreatedTicket.id,
+        authorId: adminId,
+        body: internalBody,
+        isInternal: true,
+        access: "staff",
+      });
+
+      const [activities, residentComments, staffComments, statusAudits] =
+        await Promise.all([
+          prisma.ticketActivity.findMany({
+            where: { ticketId: firstCreatedTicket.id },
+            orderBy: { createdAt: "asc" },
+            select: { toStatus: true },
+          }),
+          visibleTicketComments(prisma, residentId, firstCreatedTicket.id),
+          visibleTicketComments(prisma, adminId, firstCreatedTicket.id),
+          prisma.auditLog.count({
+            where: {
+              tenantId: tenantAId,
+              entityId: firstCreatedTicket.id,
+              action: "ticket.status_changed",
+            },
+          }),
+        ]);
+      const activityStatuses = activities.flatMap(({ toStatus }) =>
+        toStatus ? [toStatus] : [],
+      );
+      const expectedStatuses = [
+        TicketStatus.ENVIADO,
+        TicketStatus.ASIGNADO,
+        TicketStatus.EN_PROCESO,
+        TicketStatus.RESUELTO,
+      ];
+      if (
+        activityStatuses.length !== expectedStatuses.length ||
+        activityStatuses.some(
+          (status, index) => status !== expectedStatuses[index],
+        )
+      )
+        throw new Error(
+          `Historial de estados invalido: ${activityStatuses.join(", ")}`,
+        );
+      if (
+        residentComments.length !== 1 ||
+        residentComments[0]?.body !== publicBody ||
+        residentComments[0]?.isInternal
+      )
+        throw new Error(
+          `RLS expuso una nota interna al residente: ${JSON.stringify(residentComments)}`,
+        );
+      if (staffComments.length !== 2 || statusAudits !== 2)
+        throw new Error(
+          `Visibilidad o auditoria incompleta: staff=${staffComments.length}, audits=${statusAudits}`,
+        );
+
       console.log(
-        "✓ Migración aplicada y seed idempotente verificado en PostgreSQL temporal",
+        "✓ Migraciones, seed, RLS, correlativo, SLA, estados, comentarios y auditoria verificados",
       );
     } finally {
       await prisma.$disconnect();
