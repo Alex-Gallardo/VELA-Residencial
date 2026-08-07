@@ -8,6 +8,7 @@ export type Action =
   | "invite"
   | "revoke"
   | "manage_roles"
+  | "triage"
   | "moderate"
   | "audit";
 
@@ -39,6 +40,7 @@ const permissions: Record<RoleName, readonly Rule[]> = {
     "read:ticket",
     "create:ticket",
     "update:ticket",
+    "triage:ticket",
     "read:notice",
     "read:document",
     "read:notification",
@@ -66,6 +68,7 @@ const permissions: Record<RoleName, readonly Rule[]> = {
     "read:tenant",
     "read:ticket",
     "update:ticket",
+    "triage:ticket",
     "moderate:ticket",
     "read:notice",
     "read:document",
@@ -75,6 +78,7 @@ const permissions: Record<RoleName, readonly Rule[]> = {
     "read:ticket",
     "create:ticket",
     "update:ticket",
+    "triage:ticket",
     "read:notice",
     "read:document",
     "read:notification",

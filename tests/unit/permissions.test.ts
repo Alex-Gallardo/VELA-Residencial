@@ -20,6 +20,12 @@ describe("RBAC", () => {
     expect(can(user(RoleName.OPERACIONES), "revoke", "invitation")).toBe(false);
   });
 
+  it("reserva el triage para personal operativo", () => {
+    expect(can(user(RoleName.RESIDENTE), "triage", "ticket")).toBe(false);
+    expect(can(user(RoleName.OPERACIONES), "triage", "ticket")).toBe(true);
+    expect(can(user(RoleName.SEGURIDAD), "triage", "ticket")).toBe(true);
+  });
+
   it("mantiene los permisos operativos y de comunicación separados", () => {
     expect(can(user(RoleName.OPERACIONES), "update", "ticket")).toBe(true);
     expect(can(user(RoleName.OPERACIONES), "create", "notice")).toBe(false);
