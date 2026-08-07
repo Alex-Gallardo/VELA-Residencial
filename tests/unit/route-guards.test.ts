@@ -13,6 +13,7 @@ describe("protección de rutas", () => {
     expect(isPrivateRoute("/avisos")).toBe(true);
     expect(isPrivateRoute("/notificaciones")).toBe(true);
     expect(isPrivateRoute("/perfil")).toBe(true);
+    expect(isPrivateRoute("/reglamento")).toBe(true);
     expect(isPrivateRoute("/admin/invitaciones")).toBe(true);
     expect(isPrivateRoute("/onboarding")).toBe(true);
     expect(isPrivateRoute("/login")).toBe(false);

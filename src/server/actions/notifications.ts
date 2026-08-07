@@ -97,24 +97,35 @@ export async function savePushSubscriptionAction(
   const context = await requirePermission("read", "notification");
   const parsed = pushSubscriptionSchema.safeParse(payload);
   if (!parsed.success) return { error: "Suscripción push inválida." };
-  await db.pushSubscription.upsert({
+  const stored = await db.pushSubscription.findUnique({
     where: { endpoint: parsed.data.endpoint },
-    update: {
-      tenantId: context.membership.tenantId,
-      userId: context.user.id,
-      p256dh: parsed.data.keys.p256dh,
-      auth: parsed.data.keys.auth,
-      userAgent: userAgent?.slice(0, 500),
-    },
-    create: {
-      tenantId: context.membership.tenantId,
-      userId: context.user.id,
-      endpoint: parsed.data.endpoint,
-      p256dh: parsed.data.keys.p256dh,
-      auth: parsed.data.keys.auth,
-      userAgent: userAgent?.slice(0, 500),
-    },
   });
+  if (
+    stored &&
+    (stored.tenantId !== context.membership.tenantId ||
+      stored.userId !== context.user.id)
+  )
+    return { error: "La suscripción ya pertenece a otra cuenta." };
+  if (stored)
+    await db.pushSubscription.update({
+      where: { id: stored.id },
+      data: {
+        p256dh: parsed.data.keys.p256dh,
+        auth: parsed.data.keys.auth,
+        userAgent: userAgent?.slice(0, 500),
+      },
+    });
+  else
+    await db.pushSubscription.create({
+      data: {
+        tenantId: context.membership.tenantId,
+        userId: context.user.id,
+        endpoint: parsed.data.endpoint,
+        p256dh: parsed.data.keys.p256dh,
+        auth: parsed.data.keys.auth,
+        userAgent: userAgent?.slice(0, 500),
+      },
+    });
   revalidatePath("/perfil");
   return { success: true };
 }

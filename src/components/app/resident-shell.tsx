@@ -1,4 +1,5 @@
 import {
+  BookOpenText,
   ClipboardList,
   Flame,
   Home,
@@ -30,6 +31,12 @@ const navigation = [
     icon: PlusCircle,
     key: "nuevo",
   },
+  {
+    href: "/reglamento",
+    label: "Reglamento",
+    icon: BookOpenText,
+    key: "reglamento",
+  },
 ] as const;
 
 export async function ResidentShell({
@@ -43,6 +50,7 @@ export async function ResidentShell({
     | "notificaciones"
     | "reportes"
     | "nuevo"
+    | "reglamento"
     | "perfil";
 }) {
   const context = await getAuthContext();
@@ -59,6 +67,9 @@ export async function ResidentShell({
       : 0;
   return (
     <main className="min-h-screen bg-background px-5 py-6 pb-28 sm:px-10 sm:pb-10">
+      <a className="skip-link" href="#resident-content">
+        Saltar al contenido
+      </a>
       <nav className="mx-auto flex max-w-6xl items-center justify-between gap-4">
         <Link
           className="flex min-h-11 items-center gap-2 font-semibold"
@@ -109,11 +120,13 @@ export async function ResidentShell({
         </div>
       </nav>
 
-      <div className="mx-auto mt-10 max-w-6xl">{children}</div>
+      <div id="resident-content" className="mx-auto mt-10 max-w-6xl">
+        {children}
+      </div>
 
       <nav
         aria-label="Navegación de residente"
-        className="fixed inset-x-3 bottom-3 z-20 grid grid-cols-5 rounded-xl border bg-surface/95 p-2 shadow-lg backdrop-blur sm:hidden"
+        className="fixed inset-x-3 bottom-3 z-20 grid grid-cols-6 rounded-xl border bg-surface/95 p-2 shadow-lg backdrop-blur sm:hidden"
       >
         {navigation.map(({ href, label, icon: Icon, key }) => (
           <Link

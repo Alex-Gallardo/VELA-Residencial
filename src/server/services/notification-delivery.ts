@@ -120,8 +120,26 @@ export async function dispatchPendingNotifications(input?: {
   });
   let delivered = 0;
   let deferred = 0;
+  const tenantChannels = new Map<string, NotificationChannel[]>();
 
   for (const notification of notifications) {
+    let allowedChannels = tenantChannels.get(notification.tenantId);
+    if (!allowedChannels) {
+      const settings = await db.tenantSettings.findUnique({
+        where: { tenantId: notification.tenantId },
+        select: { notificationChannels: true },
+      });
+      allowedChannels = settings?.notificationChannels ?? [
+        NotificationChannel.IN_APP,
+        NotificationChannel.PUSH,
+        NotificationChannel.EMAIL,
+      ];
+      tenantChannels.set(notification.tenantId, allowedChannels);
+    }
+    if (!allowedChannels.includes(notification.channel)) {
+      await db.notification.delete({ where: { id: notification.id } });
+      continue;
+    }
     const preferences =
       (await db.notificationPreference.findUnique({
         where: {

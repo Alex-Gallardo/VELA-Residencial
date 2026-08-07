@@ -19,6 +19,7 @@
     "verify:database": "tsx scripts/verify-database.ts",
     "verify:services": "tsx scripts/verify-services.ts",
     "verify:sprint3:cloud": "tsx scripts/verify-sprint-3-cloud.ts",
+    "verify:sprint5:cloud": "tsx scripts/verify-sprint-5-cloud.ts",
     "e2e:fixture:setup": "tsx scripts/sprint-1-e2e-fixture.ts setup",
     "e2e:fixture:verify": "tsx scripts/sprint-1-e2e-fixture.ts verify",
     "e2e:fixture:cleanup": "tsx scripts/sprint-1-e2e-fixture.ts cleanup",

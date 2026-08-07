@@ -4,9 +4,11 @@
 
 :root {
   --color-brand: #1e6f5c;
+  --color-brand-readable: #1e6f5c;
   --color-brand-hover: #185a4b;
   --color-brand-soft: #e7f1ee;
   --color-vela: #f4a93b;
+  --color-vela-readable: #704600;
   --color-vela-soft: #fdf2de;
   --color-ink: #161b22;
   --color-muted: #5b6573;
@@ -15,9 +17,13 @@
   --color-surface: #ffffff;
   --color-border: #e6e8ec;
   --color-success: #2e9e6b;
+  --color-success-readable: #1f754e;
   --color-warning: #e0a030;
-  --color-danger: #d64545;
+  --color-warning-readable: #765000;
+  --color-danger: #b93434;
+  --color-danger-readable: #ad2929;
   --color-info: #3a7bd5;
+  --color-info-readable: #2863b0;
   --status-enviado: #3a7bd5;
   --status-proceso: #e0a030;
   --status-resuelto: #2e9e6b;
@@ -50,6 +56,13 @@
     --color-faint: #87909d;
     --color-border: #232a33;
     --color-brand-soft: #16322b;
+    --color-brand-readable: #76d7bc;
+    --color-vela-soft: #392b13;
+    --color-vela-readable: #ffc76d;
+    --color-success-readable: #68d59d;
+    --color-warning-readable: #ffd47a;
+    --color-danger-readable: #ff9292;
+    --color-info-readable: #8dbbff;
   }
 }
 
@@ -71,11 +84,54 @@
     outline: 2px solid var(--color-brand);
     outline-offset: 3px;
   }
+
+  .skip-link {
+    position: fixed;
+    left: 1rem;
+    top: 1rem;
+    z-index: 100;
+    transform: translateY(-200%);
+    border-radius: var(--radius-md);
+    background: var(--color-brand);
+    color: white;
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+  }
+
+  .skip-link:focus {
+    transform: translateY(0);
+  }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* Los colores de fondo conservan la paleta de marca; sus equivalentes de
+     texto garantizan contraste AA tanto en tema claro como oscuro. */
+  .text-brand {
+    color: var(--color-brand-readable);
+  }
+
+  .text-vela {
+    color: var(--color-vela-readable);
+  }
+
+  .text-success {
+    color: var(--color-success-readable);
+  }
+
+  .text-warning {
+    color: var(--color-warning-readable);
+  }
+
+  .text-danger {
+    color: var(--color-danger-readable);
+  }
+
+  .text-info {
+    color: var(--color-info-readable);
   }
 }
 

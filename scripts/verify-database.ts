@@ -16,6 +16,15 @@ import {
 } from "@prisma/client";
 import EmbeddedPostgres from "embedded-postgres";
 
+import {
+  addHouseholdMember,
+  createZoneConfiguration,
+  grantMembershipRole as grantManagedRole,
+  moveOutHouseholdMember,
+  updateCategoryConfiguration,
+  updateTenantSettings,
+} from "../src/server/services/admin-service";
+import { getDashboardMetrics } from "../src/server/services/dashboard-service";
 import { grantMembershipRole } from "../src/server/services/membership-service";
 import {
   ModerationServiceError,
@@ -146,6 +155,31 @@ async function visibleNotices(prisma: PrismaClient, userId: string) {
     return transaction.$queryRaw<Array<{ id: string }>>`
       SELECT "id" FROM "Notice" ORDER BY "createdAt"
     `;
+  });
+}
+
+async function sprintFiveRlsSnapshot(prisma: PrismaClient, userId: string) {
+  return prisma.$transaction(async (transaction) => {
+    await transaction.$executeRawUnsafe("SET LOCAL ROLE authenticated");
+    await transaction.$executeRawUnsafe(
+      "SELECT set_config('request.jwt.claim.sub', $1, true)",
+      userId,
+    );
+    const [documents, zones, settings, auditLogs] = await Promise.all([
+      transaction.$queryRaw<Array<{ id: string; isCurrent: boolean }>>`
+        SELECT id, "isCurrent" FROM "Document" ORDER BY version
+      `,
+      transaction.$queryRaw<Array<{ name: string }>>`
+        SELECT name FROM "ZoneConfig" ORDER BY name
+      `,
+      transaction.$queryRaw<Array<{ tenantId: string }>>`
+        SELECT "tenantId" FROM "TenantSettings"
+      `,
+      transaction.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "AuditLog"
+      `,
+    ]);
+    return { documents, zones, settings, auditLogs };
   });
 }
 
@@ -365,6 +399,115 @@ async function main() {
       if (auditedRoleChanges !== 1)
         throw new Error("El cambio de rol no genero un AuditLog");
 
+      const zone = await createZoneConfiguration(prisma, {
+        tenantId: tenantAId,
+        actorId: adminId,
+        name: "Sector Central",
+      });
+      await updateTenantSettings(prisma, {
+        tenantId: tenantAId,
+        actorId: adminId,
+        notificationChannels: [
+          NotificationChannel.IN_APP,
+          NotificationChannel.EMAIL,
+        ],
+        emergencyContacts: ["Seguridad: 5555-0101"],
+      });
+      const guest = await addHouseholdMember(prisma, {
+        tenantId: tenantAId,
+        actorId: adminId,
+        householdId: "vela_demo_household_001",
+        fullName: "Visitante de prueba",
+        relation: "FAMILIAR",
+        isPrimary: false,
+      });
+      await moveOutHouseholdMember(prisma, {
+        tenantId: tenantAId,
+        actorId: adminId,
+        memberId: guest.id,
+      });
+      const movedOut = await prisma.householdMember.findUniqueOrThrow({
+        where: { id: guest.id },
+      });
+      if (movedOut.active || !movedOut.leftAt)
+        throw new Error("La salida del residente no preservó su historial");
+
+      const documentSeriesId = "sprint-5-document-series";
+      await prisma.document.createMany({
+        data: [
+          {
+            tenantId: tenantAId,
+            seriesId: documentSeriesId,
+            title: "Reglamento de convivencia",
+            category: "REGLAMENTO",
+            storageKey: `${tenantAId}/${documentSeriesId}/v1.pdf`,
+            mimeType: "application/pdf",
+            sizeBytes: 1024,
+            version: 1,
+            isCurrent: false,
+            uploadedById: adminId,
+          },
+          {
+            tenantId: tenantAId,
+            seriesId: documentSeriesId,
+            title: "Reglamento de convivencia",
+            category: "REGLAMENTO",
+            storageKey: `${tenantAId}/${documentSeriesId}/v2.pdf`,
+            mimeType: "application/pdf",
+            sizeBytes: 2048,
+            version: 2,
+            isCurrent: true,
+            uploadedById: adminId,
+          },
+        ],
+      });
+
+      await grantManagedRole(prisma, {
+        tenantId: tenantAId,
+        actorId: adminId,
+        membershipId: otherMembership.id,
+        role: RoleName.SOPORTE_SISTEMA,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      });
+      const [
+        residentSprintFive,
+        adminSprintFive,
+        tenantBSprintFive,
+        supportActive,
+      ] = await Promise.all([
+        sprintFiveRlsSnapshot(prisma, residentId),
+        sprintFiveRlsSnapshot(prisma, adminId),
+        sprintFiveRlsSnapshot(prisma, userB.id),
+        sprintFiveRlsSnapshot(prisma, otherResidentId),
+      ]);
+      if (
+        residentSprintFive.documents.length !== 1 ||
+        !residentSprintFive.documents[0]?.isCurrent ||
+        adminSprintFive.documents.length !== 2 ||
+        tenantBSprintFive.documents.length !== 0 ||
+        residentSprintFive.settings.length !== 1 ||
+        !residentSprintFive.zones.some(({ name }) => name === zone.name) ||
+        supportActive.auditLogs.length === 0
+      )
+        throw new Error(
+          `RLS Sprint 5 inválido: resident=${JSON.stringify(residentSprintFive)}, adminDocs=${adminSprintFive.documents.length}, tenantB=${JSON.stringify(tenantBSprintFive)}, supportAudits=${supportActive.auditLogs.length}`,
+        );
+      await prisma.membershipRole.update({
+        where: {
+          membershipId_role: {
+            membershipId: otherMembership.id,
+            role: RoleName.SOPORTE_SISTEMA,
+          },
+        },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+      const supportExpired = await sprintFiveRlsSnapshot(
+        prisma,
+        otherResidentId,
+      );
+      if (supportExpired.auditLogs.length !== 0)
+        throw new Error("El acceso break-glass no venció automáticamente");
+
       const noticeNow = new Date();
       const publishedNotice = await createNotice(
         prisma,
@@ -494,6 +637,14 @@ async function main() {
         throw new Error(
           "El SLA de categoria no se calculo al crear el reporte",
         );
+      await updateCategoryConfiguration(prisma, {
+        tenantId: tenantAId,
+        actorId: adminId,
+        category: TicketCategory.MANTENIMIENTO,
+        slaHours: 12,
+        defaultRole: RoleName.OPERACIONES,
+        active: true,
+      });
 
       let duplicateBlocked = false;
       try {
@@ -693,10 +844,17 @@ async function main() {
           `Visibilidad o auditoria incompleta: staff=${staffComments.length}, audits=${statusAudits}`,
         );
 
-      await createTicket(prisma, {
+      const configuredSlaTicket = await createTicket(prisma, {
         ...ticketInput,
         title: "Revisión preventiva del contador",
       });
+      if (
+        !configuredSlaTicket.slaDueAt ||
+        configuredSlaTicket.slaDueAt.getTime() -
+          configuredSlaTicket.createdAt.getTime() !==
+          12 * 60 * 60 * 1000
+      )
+        throw new Error("El cambio de SLA no afectó a los reportes nuevos");
       await createTicket(prisma, {
         ...ticketInput,
         title: "Humedad en pared del patio",
@@ -724,8 +882,24 @@ async function main() {
           `Controles Sprint 3 incompletos: rateLimit=${rateLimitBlocked}, moderationAudits=${moderationAudits}`,
         );
 
+      const dashboard = await getDashboardMetrics(prisma, tenantAId);
+      if (
+        dashboard.ticketTotal < 5 ||
+        dashboard.ticketsByCategory.length === 0 ||
+        dashboard.activity.length === 0 ||
+        dashboard.criticalReadRate !== 100
+      )
+        throw new Error(
+          `KPIs Sprint 5 incompletos: ${JSON.stringify({
+            tickets: dashboard.ticketTotal,
+            categories: dashboard.ticketsByCategory.length,
+            activity: dashboard.activity.length,
+            criticalReadRate: dashboard.criticalReadRate,
+          })}`,
+        );
+
       console.log(
-        "✓ Migraciones, RLS, correlativo, SLA, moderación, avisos segmentados/programados, notificaciones, rate limit y auditoría verificados",
+        "✓ Migraciones, RLS, correlativo, SLA configurable, moderación, avisos, notificaciones, residentes, break-glass, documentos, KPIs y auditoría verificados",
       );
     } finally {
       await prisma.$disconnect();

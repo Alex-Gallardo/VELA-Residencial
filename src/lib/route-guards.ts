@@ -4,6 +4,7 @@ export const PRIVATE_ROUTE_PREFIXES = [
   "/avisos",
   "/notificaciones",
   "/perfil",
+  "/reglamento",
   "/admin",
   "/onboarding",
 ] as const;
