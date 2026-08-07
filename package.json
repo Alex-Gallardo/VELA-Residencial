@@ -18,6 +18,9 @@
     "db:seed": "prisma db seed",
     "verify:database": "tsx scripts/verify-database.ts",
     "verify:services": "tsx scripts/verify-services.ts",
+    "e2e:fixture:setup": "tsx scripts/sprint-1-e2e-fixture.ts setup",
+    "e2e:fixture:verify": "tsx scripts/sprint-1-e2e-fixture.ts verify",
+    "e2e:fixture:cleanup": "tsx scripts/sprint-1-e2e-fixture.ts cleanup",
     "prepare": "husky"
   },
   "dependencies": {

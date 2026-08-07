@@ -8,7 +8,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Vela — Tu residencial, en orden",
   description:
-    "Fundaciones técnicas de Vela, la plataforma de operación residencial.",
+    "Acceso seguro e invitaciones para la plataforma de operación residencial Vela.",
 };
 
 export default function RootLayout({

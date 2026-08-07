@@ -4,8 +4,10 @@ import { createServer } from "node:net";
 import { arch, platform, tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, RoleName } from "@prisma/client";
 import EmbeddedPostgres from "embedded-postgres";
+
+import { grantMembershipRole } from "../src/server/services/membership-service";
 
 const DATABASE_NAME = "vela_test";
 const DATABASE_USER = "postgres";
@@ -28,11 +30,51 @@ async function findFreePort() {
 
 function runNpm(args: string[]) {
   const npmCli = process.env.npm_execpath;
-  if (!npmCli) throw new Error("npm_execpath no está disponible");
+  if (!npmCli) throw new Error("npm_execpath no esta disponible");
   execFileSync(process.execPath, [npmCli, ...args], {
     cwd: process.cwd(),
     env: process.env,
     stdio: "inherit",
+  });
+}
+
+async function bootstrapSupabasePrimitives(databaseUrl: string) {
+  const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
+  try {
+    await prisma.$executeRawUnsafe("CREATE SCHEMA IF NOT EXISTS auth");
+    await prisma.$executeRawUnsafe(`
+      DO $$
+      BEGIN
+        CREATE ROLE authenticated NOLOGIN;
+      EXCEPTION WHEN duplicate_object THEN
+        NULL;
+      END
+      $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION auth.uid()
+      RETURNS uuid
+      LANGUAGE sql
+      STABLE
+      AS $$
+        SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
+      $$
+    `);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+async function visibleDwellingTenants(prisma: PrismaClient, userId: string) {
+  return prisma.$transaction(async (transaction) => {
+    await transaction.$executeRawUnsafe("SET LOCAL ROLE authenticated");
+    await transaction.$executeRawUnsafe(
+      "SELECT set_config('request.jwt.claim.sub', $1, true)",
+      userId,
+    );
+    return transaction.$queryRaw<Array<{ tenantId: string }>>`
+      SELECT "tenantId" FROM "Dwelling" ORDER BY "tenantId"
+    `;
   });
 }
 
@@ -43,9 +85,7 @@ async function stopPostgres(postgres: EmbeddedPostgres, databaseDir: string) {
   execFileSync(
     binaries.pg_ctl,
     ["stop", "-D", databaseDir, "-m", "fast", "-w"],
-    {
-      stdio: "inherit",
-    },
+    { stdio: "inherit" },
   );
   (postgres as unknown as { process?: undefined }).process = undefined;
 }
@@ -56,7 +96,7 @@ async function main() {
   const resolvedTemp = resolve(tmpdir()) + sep;
   const resolvedDatabaseDir = resolve(databaseDir);
   if (!resolvedDatabaseDir.startsWith(resolvedTemp))
-    throw new Error("Directorio temporal fuera del área permitida");
+    throw new Error("Directorio temporal fuera del area permitida");
 
   const postgres = new EmbeddedPostgres({
     databaseDir,
@@ -79,7 +119,8 @@ async function main() {
     process.env.DATABASE_URL = databaseUrl;
     process.env.DIRECT_URL = databaseUrl;
 
-    runNpm(["run", "db:migrate", "--", "--name", "init", "--skip-generate"]);
+    await bootstrapSupabasePrimitives(databaseUrl);
+    runNpm(["run", "db:deploy"]);
     runNpm(["run", "db:seed"]);
     runNpm(["run", "db:seed"]);
 
@@ -111,8 +152,65 @@ async function main() {
           `Seed inesperado: tenants=${tenants}, users=${users}, dwellings=${dwellings}, categories=${categories}, tickets=${tickets}`,
         );
       }
+
+      const tenantB = await prisma.tenant.create({
+        data: { name: "Residencial Encinos", slug: "encinos-rls-test" },
+      });
+      const userB = await prisma.user.create({
+        data: {
+          id: "00000000-0000-4000-8000-000000000099",
+          email: "rls-b@vela.demo",
+          fullName: "Usuario Tenant B",
+        },
+      });
+      const membershipB = await prisma.membership.create({
+        data: { tenantId: tenantB.id, userId: userB.id },
+      });
+      await prisma.membershipRole.create({
+        data: { membershipId: membershipB.id, role: RoleName.RESIDENTE },
+      });
+      await prisma.dwelling.create({
+        data: { tenantId: tenantB.id, code: "Casa B-1" },
+      });
+
+      const tenantAId = "vela_demo_tenant";
+      const [visibleToA, visibleToB] = await Promise.all([
+        visibleDwellingTenants(prisma, "00000000-0000-4000-8000-000000000002"),
+        visibleDwellingTenants(prisma, userB.id),
+      ]);
+      if (
+        visibleToA.length !== 1 ||
+        visibleToA[0]?.tenantId !== tenantAId ||
+        visibleToB.length !== 1 ||
+        visibleToB[0]?.tenantId !== tenantB.id
+      ) {
+        throw new Error(
+          `Aislamiento RLS invalido: A=${JSON.stringify(visibleToA)}, B=${JSON.stringify(visibleToB)}`,
+        );
+      }
+
+      const adminId = "00000000-0000-4000-8000-000000000001";
+      const adminMembership = await prisma.membership.findUniqueOrThrow({
+        where: { tenantId_userId: { tenantId: tenantAId, userId: adminId } },
+      });
+      await grantMembershipRole(prisma, {
+        tenantId: tenantAId,
+        membershipId: adminMembership.id,
+        role: RoleName.FINANZAS,
+        actorId: adminId,
+      });
+      const auditedRoleChanges = await prisma.auditLog.count({
+        where: {
+          tenantId: tenantAId,
+          action: "membership.role_granted",
+          entityId: { not: null },
+        },
+      });
+      if (auditedRoleChanges !== 1)
+        throw new Error("El cambio de rol no genero un AuditLog");
+
       console.log(
-        "✓ Migración aplicada y seed idempotente verificado en PostgreSQL temporal",
+        "✓ Migraciones, seed idempotente, RLS multi-tenant y auditoria verificados",
       );
     } finally {
       await prisma.$disconnect();
