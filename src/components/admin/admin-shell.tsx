@@ -1,8 +1,16 @@
-import { Flame, Home, MailPlus, TicketCheck } from "lucide-react";
+import { Flame, Home, Images, MailPlus, TicketCheck } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-export function AdminShell({ children }: { children: ReactNode }) {
+import { can, type PermissionUser } from "@/lib/permissions";
+
+export function AdminShell({
+  children,
+  permissions,
+}: {
+  children: ReactNode;
+  permissions: PermissionUser;
+}) {
   return (
     <main className="min-h-screen bg-background px-5 py-6 sm:px-10">
       <nav className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
@@ -16,18 +24,30 @@ export function AdminShell({ children }: { children: ReactNode }) {
           Vela Admin
         </Link>
         <div className="flex flex-wrap gap-2 text-sm font-medium">
-          <Link
-            className="flex min-h-11 items-center gap-2 rounded-md border bg-surface px-3"
-            href="/admin/tickets"
-          >
-            <TicketCheck className="size-4" aria-hidden="true" /> Tickets
-          </Link>
-          <Link
-            className="flex min-h-11 items-center gap-2 rounded-md border bg-surface px-3"
-            href="/admin/invitaciones"
-          >
-            <MailPlus className="size-4" aria-hidden="true" /> Invitaciones
-          </Link>
+          {can(permissions, "read", "moderation") && (
+            <Link
+              className="flex min-h-11 items-center gap-2 rounded-md border bg-surface px-3"
+              href="/admin/moderacion"
+            >
+              <Images className="size-4" aria-hidden="true" /> Moderación
+            </Link>
+          )}
+          {can(permissions, "read", "ticket") && (
+            <Link
+              className="flex min-h-11 items-center gap-2 rounded-md border bg-surface px-3"
+              href="/admin/tickets"
+            >
+              <TicketCheck className="size-4" aria-hidden="true" /> Tickets
+            </Link>
+          )}
+          {can(permissions, "invite", "invitation") && (
+            <Link
+              className="flex min-h-11 items-center gap-2 rounded-md border bg-surface px-3"
+              href="/admin/invitaciones"
+            >
+              <MailPlus className="size-4" aria-hidden="true" /> Invitaciones
+            </Link>
+          )}
           <Link
             className="flex min-h-11 items-center gap-2 rounded-md border bg-surface px-3"
             href="/inicio"

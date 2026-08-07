@@ -1,4 +1,10 @@
-import { ArrowLeft, CheckCircle2, MessageCircle } from "lucide-react";
+import { AttachmentStatus, ModerationStatus } from "@prisma/client";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ImageIcon,
+  MessageCircle,
+} from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
@@ -14,6 +20,7 @@ import {
 import { getAuthContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { addResidentTicketCommentAction } from "@/server/actions/tickets";
+import { createAttachmentViewUrl } from "@/server/services/attachment-storage";
 
 export default async function TicketDetailPage({
   params,
@@ -46,9 +53,36 @@ export default async function TicketDetailPage({
         include: { author: true },
         orderBy: { createdAt: "asc" },
       },
+      attachments: {
+        include: { moderation: true },
+      },
     },
   });
   if (!ticket) notFound();
+  const approvedImages = await Promise.all(
+    ticket.attachments.map(async (attachment) => ({
+      id: attachment.id,
+      url:
+        attachment.status === AttachmentStatus.LISTO &&
+        attachment.moderation?.status === ModerationStatus.APROBADO &&
+        attachment.storageKey
+          ? await createAttachmentViewUrl(attachment.storageKey).catch(
+              () => null,
+            )
+          : null,
+    })),
+  );
+  const imageStatusMessage = ticket.attachments.some(
+    (attachment) =>
+      attachment.status === AttachmentStatus.RECHAZADO ||
+      attachment.moderation?.status === ModerationStatus.RECHAZADO,
+  )
+    ? "La imagen fue rechazada por seguridad y no se mostrará."
+    : ticket.attachments.some(
+          (attachment) => attachment.status === AttachmentStatus.FALLIDO,
+        )
+      ? "La imagen no pudo procesarse; la administración puede reintentarlo."
+      : "La imagen está en revisión privada y aún no es visible.";
 
   return (
     <ResidentShell active="reportes">
@@ -101,6 +135,31 @@ export default async function TicketDetailPage({
             <p className="mt-4 rounded-md bg-background p-3 text-sm text-muted">
               Ubicación: {ticket.locationText}
             </p>
+          )}
+          {ticket.attachments.length > 0 && (
+            <div className="mt-6">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <ImageIcon className="size-4 text-brand" aria-hidden="true" />{" "}
+                Imagen del reporte
+              </h2>
+              {!approvedImages.some(({ url }) => url) && (
+                <p className="mt-3 rounded-md bg-background p-3 text-sm text-muted">
+                  {imageStatusMessage}
+                </p>
+              )}
+              {approvedImages.map(
+                ({ id: imageId, url }) =>
+                  url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={imageId}
+                      className="mt-3 max-h-[32rem] w-full rounded-lg border bg-background object-contain"
+                      src={url}
+                      alt={`Imagen aprobada del reporte ${formatTicketNumber(ticket.number)}`}
+                    />
+                  ),
+              )}
+            </div>
           )}
           <dl className="mt-7 grid gap-4 border-t pt-6 text-sm sm:grid-cols-2">
             <div>

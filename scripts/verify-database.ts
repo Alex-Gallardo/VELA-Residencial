@@ -5,6 +5,8 @@ import { arch, platform, tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 
 import {
+  AttachmentStatus,
+  ModerationStatus,
   PrismaClient,
   RoleName,
   TicketCategory,
@@ -14,9 +16,14 @@ import EmbeddedPostgres from "embedded-postgres";
 
 import { grantMembershipRole } from "../src/server/services/membership-service";
 import {
+  ModerationServiceError,
+  reviewModerationItem,
+} from "../src/server/services/moderation-service";
+import {
   addTicketComment,
   assignTicket,
   createTicket,
+  TicketServiceError,
   transitionTicket,
 } from "../src/server/services/ticket-service";
 
@@ -107,6 +114,45 @@ async function visibleTicketComments(
       ORDER BY "createdAt"
     `;
   });
+}
+
+async function visibleModerationItems(prisma: PrismaClient, userId: string) {
+  return prisma.$transaction(async (transaction) => {
+    await transaction.$executeRawUnsafe("SET LOCAL ROLE authenticated");
+    await transaction.$executeRawUnsafe(
+      "SELECT set_config('request.jwt.claim.sub', $1, true)",
+      userId,
+    );
+    return transaction.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "ModerationItem"
+    `;
+  });
+}
+
+async function canInsertAttachment(
+  prisma: PrismaClient,
+  input: { userId: string; tenantId: string },
+) {
+  try {
+    await prisma.$transaction(async (transaction) => {
+      await transaction.$executeRawUnsafe("SET LOCAL ROLE authenticated");
+      await transaction.$executeRawUnsafe(
+        "SELECT set_config('request.jwt.claim.sub', $1, true)",
+        input.userId,
+      );
+      await transaction.$executeRaw`
+        INSERT INTO "Attachment" (
+          "id", "tenantId", "uploadedById", "mimeType", "sizeBytes", "updatedAt"
+        ) VALUES (
+          'rls-forbidden-attachment', ${input.tenantId}, ${input.userId},
+          'image/jpeg', 32, CURRENT_TIMESTAMP
+        )
+      `;
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function stopPostgres(postgres: EmbeddedPostgres, databaseDir: string) {
@@ -278,6 +324,115 @@ async function main() {
           "El SLA de categoria no se calculo al crear el reporte",
         );
 
+      let duplicateBlocked = false;
+      try {
+        await createTicket(prisma, {
+          ...ticketInput,
+          title: "  FÚGA en llave principal! ",
+        });
+      } catch (error) {
+        duplicateBlocked =
+          error instanceof TicketServiceError &&
+          error.message.includes("ya fue enviado");
+      }
+      if (!duplicateBlocked)
+        throw new Error("El duplicado exacto no fue bloqueado");
+
+      const attachment = await prisma.attachment.create({
+        data: {
+          tenantId: tenantAId,
+          ticketId: firstCreatedTicket.id,
+          uploadedById: residentId,
+          status: AttachmentStatus.LISTO,
+          storageKey: "processed/test/image.webp",
+          originalName: "evidencia.jpg",
+          mimeType: "image/webp",
+          sizeBytes: 128,
+          checksumSha256: "a".repeat(64),
+          width: 100,
+          height: 80,
+          exifStripped: true,
+          processedAt: new Date(),
+        },
+      });
+      const moderation = await prisma.moderationItem.create({
+        data: {
+          tenantId: tenantAId,
+          attachmentId: attachment.id,
+          status: ModerationStatus.EN_REVISION_HUMANA,
+          provider: "deferred",
+          labels: [{ name: "provider_pending", confidence: null }],
+        },
+      });
+      await reviewModerationItem(prisma, {
+        moderationId: moderation.id,
+        tenantId: tenantAId,
+        reviewerId: adminId,
+        decision: "APROBADO",
+        reason: "Contenido residencial permitido.",
+      });
+      const failedAttachment = await prisma.attachment.create({
+        data: {
+          tenantId: tenantAId,
+          ticketId: firstCreatedTicket.id,
+          uploadedById: residentId,
+          status: AttachmentStatus.FALLIDO,
+          quarantineKey: "quarantine/test/failed.jpg",
+          originalName: "fallida.jpg",
+          mimeType: "image/jpeg",
+          sizeBytes: 64,
+          failureReason: "Error transitorio",
+        },
+      });
+      const failedModeration = await prisma.moderationItem.create({
+        data: {
+          tenantId: tenantAId,
+          attachmentId: failedAttachment.id,
+          status: ModerationStatus.EN_REVISION_HUMANA,
+          provider: "deferred",
+          labels: [{ name: "provider_pending", confidence: null }],
+        },
+      });
+      let failedReviewBlocked = false;
+      try {
+        await reviewModerationItem(prisma, {
+          moderationId: failedModeration.id,
+          tenantId: tenantAId,
+          reviewerId: adminId,
+          decision: "APROBADO",
+          reason: "No debe aceptarse todavía.",
+        });
+      } catch (error) {
+        failedReviewBlocked = error instanceof ModerationServiceError;
+      }
+      const [reviewed, residentModeration, moderatorModeration, rawInsert] =
+        await Promise.all([
+          prisma.moderationItem.findUniqueOrThrow({
+            where: { id: moderation.id },
+          }),
+          visibleModerationItems(prisma, residentId),
+          visibleModerationItems(prisma, adminId),
+          canInsertAttachment(prisma, {
+            userId: residentId,
+            tenantId: tenantAId,
+          }),
+        ]);
+      if (
+        reviewed.status !== ModerationStatus.APROBADO ||
+        reviewed.reviewedById !== adminId ||
+        !reviewed.reviewedAt ||
+        !failedReviewBlocked
+      )
+        throw new Error("La decisión humana no quedó registrada");
+      if (
+        residentModeration.length !== 0 ||
+        moderatorModeration.length !== 2 ||
+        rawInsert
+      )
+        throw new Error(
+          `RLS de adjuntos/moderación inválido: residente=${residentModeration.length}, moderador=${moderatorModeration.length}, inserción=${rawInsert}`,
+        );
+
       await assignTicket(prisma, {
         tenantId: tenantAId,
         ticketId: firstCreatedTicket.id,
@@ -367,15 +522,51 @@ async function main() {
           `Visibilidad o auditoria incompleta: staff=${staffComments.length}, audits=${statusAudits}`,
         );
 
+      await createTicket(prisma, {
+        ...ticketInput,
+        title: "Revisión preventiva del contador",
+      });
+      await createTicket(prisma, {
+        ...ticketInput,
+        title: "Humedad en pared del patio",
+      });
+      let rateLimitBlocked = false;
+      try {
+        await createTicket(prisma, {
+          ...ticketInput,
+          title: "Solicitud adicional sobre tubería",
+        });
+      } catch (error) {
+        rateLimitBlocked =
+          error instanceof TicketServiceError &&
+          error.message.includes("límite temporal");
+      }
+      const moderationAudits = await prisma.auditLog.count({
+        where: {
+          tenantId: tenantAId,
+          action: "moderation.reviewed",
+          entityId: moderation.id,
+        },
+      });
+      if (!rateLimitBlocked || moderationAudits !== 1)
+        throw new Error(
+          `Controles Sprint 3 incompletos: rateLimit=${rateLimitBlocked}, moderationAudits=${moderationAudits}`,
+        );
+
       console.log(
-        "✓ Migraciones, seed, RLS, correlativo, SLA, estados, comentarios y auditoria verificados",
+        "✓ Migraciones, RLS, correlativo, SLA, moderación, duplicados, rate limit y auditoría verificados",
       );
     } finally {
       await prisma.$disconnect();
     }
   } finally {
     if (started) await stopPostgres(postgres, resolvedDatabaseDir);
-    await rm(resolvedDatabaseDir, { recursive: true, force: true });
+    await rm(resolvedDatabaseDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 8,
+      retryDelay: 250,
+    });
   }
 }
 

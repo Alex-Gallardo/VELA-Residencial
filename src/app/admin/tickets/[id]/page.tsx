@@ -1,5 +1,11 @@
-import { RoleName } from "@prisma/client";
-import { ArrowLeft, Eye, LockKeyhole, MessageSquareText } from "lucide-react";
+import { AttachmentStatus, RoleName } from "@prisma/client";
+import {
+  ArrowLeft,
+  Eye,
+  ImageIcon,
+  LockKeyhole,
+  MessageSquareText,
+} from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
@@ -12,6 +18,10 @@ import {
   ticketCategoryLabels,
   ticketStatusLabels,
 } from "@/config/tickets";
+import {
+  attachmentStatusLabels,
+  moderationStatusLabels,
+} from "@/config/attachments";
 import { getAuthContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
@@ -21,6 +31,7 @@ import {
   transitionTicketAction,
 } from "@/server/actions/tickets";
 import { availableTicketTransitions } from "@/server/services/ticket-state-machine";
+import { createAttachmentViewUrl } from "@/server/services/attachment-storage";
 
 export default async function AdminTicketDetailPage({
   params,
@@ -48,6 +59,7 @@ export default async function AdminTicketDetailPage({
         dwelling: true,
         activities: { include: { actor: true }, orderBy: { createdAt: "asc" } },
         comments: { include: { author: true }, orderBy: { createdAt: "asc" } },
+        attachments: { include: { moderation: true } },
       },
     }),
     db.membership.findMany({
@@ -69,9 +81,20 @@ export default async function AdminTicketDetailPage({
     ),
   );
   const transitions = availableTicketTransitions(ticket.status);
+  const ticketImages = await Promise.all(
+    ticket.attachments.map(async (attachment) => ({
+      ...attachment,
+      imageUrl:
+        attachment.status === AttachmentStatus.LISTO && attachment.storageKey
+          ? await createAttachmentViewUrl(attachment.storageKey).catch(
+              () => null,
+            )
+          : null,
+    })),
+  );
 
   return (
-    <AdminShell>
+    <AdminShell permissions={context.membership}>
       <Link
         className="inline-flex min-h-11 items-center gap-2 text-sm text-brand"
         href="/admin/tickets"
@@ -115,6 +138,42 @@ export default async function AdminTicketDetailPage({
               </p>
             )}
           </article>
+
+          {ticketImages.length > 0 && (
+            <section className="rounded-xl border bg-surface p-6 shadow-md sm:p-8">
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <ImageIcon className="size-5 text-brand" aria-hidden="true" />{" "}
+                Imagen adjunta
+              </h2>
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                {ticketImages.map((attachment) => (
+                  <article
+                    key={attachment.id}
+                    className="rounded-lg border bg-background p-3"
+                  >
+                    {attachment.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        className="max-h-80 w-full rounded-md object-contain"
+                        src={attachment.imageUrl}
+                        alt={`Imagen del reporte ${formatTicketNumber(ticket.number)}`}
+                      />
+                    ) : (
+                      <div className="grid min-h-40 place-items-center text-sm text-muted">
+                        Imagen en procesamiento
+                      </div>
+                    )}
+                    <p className="mt-3 text-xs font-medium text-muted">
+                      Estado:{" "}
+                      {attachment.moderation
+                        ? moderationStatusLabels[attachment.moderation.status]
+                        : attachmentStatusLabels[attachment.status]}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="rounded-xl border bg-surface p-6 shadow-md sm:p-8">
             <h2 className="flex items-center gap-2 text-xl font-semibold">

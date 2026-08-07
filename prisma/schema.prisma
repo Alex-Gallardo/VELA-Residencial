@@ -99,6 +99,21 @@ enum ModerationStatus {
   EN_REVISION_HUMANA
 }
 
+enum AttachmentStatus {
+  PENDIENTE_SUBIDA
+  SUBIDO
+  PROCESANDO
+  LISTO
+  RECHAZADO
+  FALLIDO
+}
+
+enum ModerationDecisionSource {
+  REGLAS_LOCALES
+  PROVEEDOR
+  HUMANA
+}
+
 enum InvitationStatus {
   PENDIENTE
   ACEPTADA
@@ -138,15 +153,17 @@ model User {
   avatarUrl     String?
   createdAt     DateTime @default(now())
 
-  memberships      Membership[]
-  householdMembers HouseholdMember[]
-  ticketsCreated   Ticket[]          @relation("TicketCreatedBy")
-  ticketsAssigned  Ticket[]          @relation("TicketAssignee")
-  ticketActivities TicketActivity[]
-  ticketComments   TicketComment[]
-  notifications    Notification[]
-  noticeReceipts   NoticeReceipt[]
-  auditLogs        AuditLog[]
+  memberships         Membership[]
+  householdMembers    HouseholdMember[]
+  ticketsCreated      Ticket[]          @relation("TicketCreatedBy")
+  ticketsAssigned     Ticket[]          @relation("TicketAssignee")
+  ticketActivities    TicketActivity[]
+  ticketComments      TicketComment[]
+  notifications       Notification[]
+  noticeReceipts      NoticeReceipt[]
+  auditLogs           AuditLog[]
+  attachmentsUploaded Attachment[]      @relation("AttachmentUploadedBy")
+  moderationReviews   ModerationItem[]  @relation("ModerationReviewedBy")
 }
 
 model Membership {
@@ -297,35 +314,53 @@ model TicketComment {
 }
 
 model Attachment {
-  id           String   @id @default(cuid())
-  tenantId     String
-  ticketId     String?
-  storageKey   String
-  mimeType     String
-  sizeBytes    Int
-  exifStripped Boolean  @default(false)
-  createdAt    DateTime @default(now())
+  id             String           @id @default(cuid())
+  tenantId       String
+  ticketId       String?
+  uploadedById   String?
+  status         AttachmentStatus @default(PENDIENTE_SUBIDA)
+  quarantineKey  String?
+  storageKey     String?
+  originalName   String?
+  mimeType       String
+  sizeBytes      Int
+  checksumSha256 String?
+  width          Int?
+  height         Int?
+  exifStripped   Boolean          @default(false)
+  failureReason  String?
+  processedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   ticket     Ticket?         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  uploadedBy User?           @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
   moderation ModerationItem?
 
   @@index([tenantId])
   @@index([ticketId])
+  @@index([uploadedById])
+  @@index([tenantId, status])
+  @@index([tenantId, checksumSha256])
 }
 
 model ModerationItem {
-  id           String           @id @default(cuid())
-  tenantId     String
-  attachmentId String           @unique
-  status       ModerationStatus @default(PENDIENTE)
-  provider     String?
-  confidence   Float?
-  labels       Json?
-  reviewedById String?
-  reviewedAt   DateTime?
-  createdAt    DateTime         @default(now())
+  id             String                    @id @default(cuid())
+  tenantId       String
+  attachmentId   String                    @unique
+  status         ModerationStatus          @default(PENDIENTE)
+  provider       String?
+  confidence     Float?
+  labels         Json?
+  decisionSource ModerationDecisionSource?
+  decisionReason String?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
 
   attachment Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+  reviewedBy User?      @relation("ModerationReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   @@index([tenantId, status])
 }

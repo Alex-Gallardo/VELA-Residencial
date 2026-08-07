@@ -77,7 +77,7 @@ export default async function AdminTicketsPage({
   );
 
   return (
-    <AdminShell>
+    <AdminShell permissions={context.membership}>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="font-mono text-xs uppercase tracking-widest text-brand">

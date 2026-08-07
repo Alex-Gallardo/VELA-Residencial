@@ -1,11 +1,11 @@
 import { ArrowRight, CheckCircle2, Flame, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
-const accessFeatures = [
-  "Acceso únicamente por invitación",
-  "Sesiones seguras con Supabase Auth",
-  "Permisos por rol y residencial",
-  "Aislamiento multi-tenant con RLS",
+const productFeatures = [
+  "Reportes con imágenes privadas y sanitizadas",
+  "Seguimiento claro para residentes y administración",
+  "Moderación humana con decisiones auditadas",
+  "Aislamiento por residencial y permisos por rol",
 ];
 
 export default function HomePage() {
@@ -65,11 +65,11 @@ export default function HomePage() {
 
         <div className="rounded-xl border bg-surface p-6 shadow-lg sm:p-8">
           <p className="font-mono text-xs uppercase tracking-widest text-faint">
-            VELA · SPRINT 1
+            VELA · SPRINT 3
           </p>
-          <h2 className="mt-2 text-2xl font-semibold">Identidad y acceso</h2>
+          <h2 className="mt-2 text-2xl font-semibold">Reportes seguros</h2>
           <ul className="mt-7 space-y-3">
-            {accessFeatures.map((feature) => (
+            {productFeatures.map((feature) => (
               <li
                 key={feature}
                 className="flex min-h-11 items-center gap-3 rounded-lg bg-background px-4 py-3"

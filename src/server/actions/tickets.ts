@@ -16,6 +16,7 @@ import {
   addTicketComment,
   assignTicket,
   createTicket,
+  findPotentialTicketDuplicate,
   TicketServiceError,
   transitionTicket,
 } from "@/server/services/ticket-service";
@@ -26,6 +27,7 @@ export type CreateTicketActionState = {
   ticketId?: string;
   number?: number;
   category?: string;
+  duplicate?: { id: string; number: number; title: string };
 };
 
 export async function createTicketAction(
@@ -40,12 +42,30 @@ export async function createTicketAction(
       description: formData.get("description"),
       locationText: formData.get("locationText") || undefined,
       dwellingId: formData.get("dwellingId"),
+      attachmentId: formData.get("attachmentId") || undefined,
+      duplicateOfId: formData.get("duplicateOfId") || undefined,
     });
     if (!parsed.success)
       return {
         error:
           parsed.error.issues[0]?.message ?? "Revisa los datos del reporte.",
       };
+
+    if (!parsed.data.duplicateOfId) {
+      const duplicate = await findPotentialTicketDuplicate(db, {
+        tenantId: context.membership.tenantId,
+        userId: context.user.id,
+        category: parsed.data.category,
+        dwellingId: parsed.data.dwellingId,
+        title: parsed.data.title,
+      });
+      if (duplicate)
+        return {
+          error:
+            "Encontramos un reporte parecido. Revísalo antes de confirmar otro.",
+          duplicate,
+        };
+    }
 
     const ticket = await createTicket(db, {
       ...parsed.data,
@@ -55,6 +75,7 @@ export async function createTicketAction(
     revalidatePath("/inicio");
     revalidatePath("/reportes");
     revalidatePath("/admin/tickets");
+    revalidatePath("/admin/moderacion");
     return {
       success: true,
       ticketId: ticket.id,

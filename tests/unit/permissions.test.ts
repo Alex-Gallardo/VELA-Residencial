@@ -26,6 +26,18 @@ describe("RBAC", () => {
     expect(can(user(RoleName.SEGURIDAD), "triage", "ticket")).toBe(true);
   });
 
+  it("reserva la moderación al moderador y administrador", () => {
+    expect(can(user(RoleName.MODERADOR), "read", "moderation")).toBe(true);
+    expect(can(user(RoleName.MODERADOR), "moderate", "moderation")).toBe(true);
+    expect(can(user(RoleName.ADMIN_GENERAL), "moderate", "moderation")).toBe(
+      true,
+    );
+    expect(can(user(RoleName.RESIDENTE), "read", "moderation")).toBe(false);
+    expect(can(user(RoleName.OPERACIONES), "moderate", "moderation")).toBe(
+      false,
+    );
+  });
+
   it("mantiene los permisos operativos y de comunicación separados", () => {
     expect(can(user(RoleName.OPERACIONES), "update", "ticket")).toBe(true);
     expect(can(user(RoleName.OPERACIONES), "create", "notice")).toBe(false);
