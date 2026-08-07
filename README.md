@@ -1,16 +1,15 @@
 # Vela
 
-Vela es una plataforma SaaS multi-tenant de operación residencial. El repositorio contiene las fundaciones de SPRINT-0 y la identidad y acceso de SPRINT-1.
+Vela es una plataforma SaaS multi-tenant de operación residencial. El repositorio contiene las fundaciones de SPRINT-0, la identidad y acceso de SPRINT-1 y el flujo operativo de reportes de SPRINT-2.
 
-## SPRINT-1 disponible
+## SPRINT-2 disponible
 
-- Login, logout, recuperación y actualización de contraseña con Supabase Auth.
-- Middleware de sesión y resolución de residencial para rutas privadas.
-- RBAC centralizado con roles temporales y respuestas API `403`.
-- Invitaciones de un solo uso con token hasheado, expiración y revocación.
-- Registro guiado de vivienda, relación y hogar.
-- RLS en todas las tablas multi-tenant y aislamiento probado entre tenants A/B.
-- Auditoría obligatoria de invitaciones y cambios de rol.
+- Creación de reportes en tres pasos con borrador persistente.
+- Correlativo único `#NNN` por residencial protegido ante concurrencia.
+- Listado y detalle residente con filtros, estado, SLA e historial.
+- Bandeja administrativa con filtros, asignación y máquina de estados.
+- Comentarios visibles y notas internas separadas por aplicación y RLS.
+- SLA calculado desde `CategoryConfig` y auditoría de acciones operativas.
 
 El registro público no existe: una cuenta nueva sólo puede originarse desde un enlace de invitación válido.
 
@@ -40,7 +39,7 @@ npm run build
 npm run verify:services
 ```
 
-`verify:database` levanta PostgreSQL temporal, aplica todas las migraciones, ejecuta dos veces el seed, simula identidades Supabase y demuestra que un usuario del tenant A no puede leer datos del tenant B. También comprueba la auditoría de cambios de rol.
+`verify:database` levanta PostgreSQL temporal, aplica todas las migraciones, ejecuta dos veces el seed y demuestra aislamiento entre tenants. Además prueba numeración concurrente, SLA, ciclo de estados, privacidad de notas internas y auditoría.
 
 ## Seguridad
 
@@ -50,4 +49,4 @@ npm run verify:services
 - RLS es la barrera final aunque falle una validación de aplicación.
 - Los tokens de invitación se almacenan únicamente como SHA-256.
 
-Consulta [docs/sprint-1.md](docs/sprint-1.md) para la trazabilidad de tickets y criterios de aceptación.
+Consulta [docs/sprint-2.md](docs/sprint-2.md) para la trazabilidad de tickets y criterios de aceptación. Las entregas anteriores permanecen documentadas en `docs/sprint-0.md` y `docs/sprint-1.md`.
