@@ -130,16 +130,18 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships   Membership[]
-  dwellings     Dwelling[]
-  households    Household[]
-  tickets       Ticket[]
-  notices       Notice[]
-  notifications Notification[]
-  documents     Document[]
-  invitations   Invitation[]
-  auditLogs     AuditLog[]
-  categories    CategoryConfig[]
+  memberships             Membership[]
+  dwellings               Dwelling[]
+  households              Household[]
+  tickets                 Ticket[]
+  notices                 Notice[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  pushSubscriptions       PushSubscription[]
+  documents               Document[]
+  invitations             Invitation[]
+  auditLogs               AuditLog[]
+  categories              CategoryConfig[]
 
   @@index([slug])
 }
@@ -153,17 +155,19 @@ model User {
   avatarUrl     String?
   createdAt     DateTime @default(now())
 
-  memberships         Membership[]
-  householdMembers    HouseholdMember[]
-  ticketsCreated      Ticket[]          @relation("TicketCreatedBy")
-  ticketsAssigned     Ticket[]          @relation("TicketAssignee")
-  ticketActivities    TicketActivity[]
-  ticketComments      TicketComment[]
-  notifications       Notification[]
-  noticeReceipts      NoticeReceipt[]
-  auditLogs           AuditLog[]
-  attachmentsUploaded Attachment[]      @relation("AttachmentUploadedBy")
-  moderationReviews   ModerationItem[]  @relation("ModerationReviewedBy")
+  memberships             Membership[]
+  householdMembers        HouseholdMember[]
+  ticketsCreated          Ticket[]                 @relation("TicketCreatedBy")
+  ticketsAssigned         Ticket[]                 @relation("TicketAssignee")
+  ticketActivities        TicketActivity[]
+  ticketComments          TicketComment[]
+  notifications           Notification[]
+  noticeReceipts          NoticeReceipt[]
+  notificationPreferences NotificationPreference[]
+  pushSubscriptions       PushSubscription[]
+  auditLogs               AuditLog[]
+  attachmentsUploaded     Attachment[]             @relation("AttachmentUploadedBy")
+  moderationReviews       ModerationItem[]         @relation("ModerationReviewedBy")
 }
 
 model Membership {
@@ -366,22 +370,25 @@ model ModerationItem {
 }
 
 model Notice {
-  id                  String     @id @default(cuid())
+  id                  String                @id @default(cuid())
   tenantId            String
   type                NoticeType
   title               String
   body                String
   audience            Json
-  requiresReadReceipt Boolean    @default(false)
+  channels            NotificationChannel[] @default([IN_APP])
+  requiresReadReceipt Boolean               @default(false)
   publishedAt         DateTime?
+  deliveredAt         DateTime?
   expiresAt           DateTime?
   createdById         String
-  createdAt           DateTime   @default(now())
+  createdAt           DateTime              @default(now())
 
   tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   receipts NoticeReceipt[]
 
   @@index([tenantId, type])
+  @@index([tenantId, publishedAt, deliveredAt])
 }
 
 model NoticeReceipt {
@@ -414,6 +421,44 @@ model Notification {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, userId, readAt])
+  @@index([channel, sentAt, createdAt])
+}
+
+model NotificationPreference {
+  id              String   @id @default(cuid())
+  tenantId        String
+  userId          String
+  inAppEnabled    Boolean  @default(true)
+  pushEnabled     Boolean  @default(true)
+  emailEnabled    Boolean  @default(true)
+  quietHoursStart Int?
+  quietHoursEnd   Int?
+  timeZone        String   @default("America/Guatemala")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
 }
 
 model Document {

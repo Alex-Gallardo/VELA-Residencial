@@ -1,9 +1,12 @@
 import {
+  AlertTriangle,
   ArrowRight,
   ClipboardList,
+  Megaphone,
   PlusCircle,
   ShieldCheck,
 } from "lucide-react";
+import { NoticeType } from "@prisma/client";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -27,15 +30,35 @@ export default async function DashboardPage({
   const roles = context.membership.roles.map(({ role }) =>
     role.replaceAll("_", " "),
   );
-  const openTickets = await db.ticket.findMany({
-    where: {
-      tenantId: context.membership.tenantId,
-      createdById: context.user.id,
-      status: { in: openTicketStatuses },
-    },
-    orderBy: { updatedAt: "desc" },
-    take: 3,
-  });
+  const now = new Date();
+  const [openTickets, noticeReceipts] = await Promise.all([
+    db.ticket.findMany({
+      where: {
+        tenantId: context.membership.tenantId,
+        createdById: context.user.id,
+        status: { in: openTicketStatuses },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 3,
+    }),
+    db.noticeReceipt.findMany({
+      where: {
+        tenantId: context.membership.tenantId,
+        userId: context.user.id,
+        notice: {
+          deliveredAt: { not: null },
+          publishedAt: { lte: now },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+      },
+      include: { notice: true },
+      orderBy: { notice: { publishedAt: "desc" } },
+      take: 3,
+    }),
+  ]);
+  const criticalNotice = noticeReceipts.find(
+    ({ notice }) => notice.type === NoticeType.ALERTA_CRITICA,
+  );
 
   return (
     <ResidentShell active="inicio">
@@ -45,6 +68,23 @@ export default async function DashboardPage({
           query.denied ? "No tienes permiso para abrir esa sección." : undefined
         }
       />
+      {criticalNotice && (
+        <Link
+          className="mb-7 flex items-start gap-3 rounded-xl border border-danger/40 bg-danger/10 p-5 text-danger shadow-sm"
+          href={`/avisos/${criticalNotice.notice.id}`}
+        >
+          <AlertTriangle
+            className="mt-0.5 size-5 shrink-0"
+            aria-hidden="true"
+          />
+          <span>
+            <strong className="block">{criticalNotice.notice.title}</strong>
+            <span className="mt-1 block text-sm">
+              {criticalNotice.notice.body}
+            </span>
+          </span>
+        </Link>
+      )}
       <section className="rounded-xl border bg-surface p-7 shadow-md sm:p-10">
         <span className="inline-flex items-center gap-2 rounded-full bg-brand-soft px-4 py-2 text-sm font-medium text-brand">
           <ShieldCheck className="size-4" aria-hidden="true" /> Acceso protegido
@@ -89,6 +129,52 @@ export default async function DashboardPage({
               Invitaciones
             </Link>
           )}
+          {can(context.membership, "create", "notice") && (
+            <Link
+              className="inline-flex min-h-11 items-center rounded-md border px-5 font-medium"
+              href="/admin/avisos"
+            >
+              Gestionar avisos
+            </Link>
+          )}
+        </div>
+      </section>
+
+      <section className="mt-7 rounded-xl border bg-surface p-6 shadow-sm sm:p-8">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="flex items-center gap-2 text-xl font-semibold">
+            <Megaphone className="size-5 text-brand" aria-hidden="true" />{" "}
+            Avisos recientes
+          </h2>
+          <Link className="text-sm font-medium text-brand" href="/avisos">
+            Ver todos
+          </Link>
+        </div>
+        <div className="mt-5 space-y-3">
+          {noticeReceipts.length === 0 && (
+            <p className="rounded-md bg-background p-5 text-sm text-muted">
+              No hay avisos vigentes para tu audiencia.
+            </p>
+          )}
+          {noticeReceipts.map(({ notice, readAt }) => (
+            <Link
+              key={notice.id}
+              className="flex items-start justify-between gap-4 rounded-md border p-4 hover:border-brand"
+              href={`/avisos/${notice.id}`}
+            >
+              <span>
+                <strong className="block">{notice.title}</strong>
+                <span className="mt-1 line-clamp-1 text-sm text-muted">
+                  {notice.body}
+                </span>
+              </span>
+              {!readAt && (
+                <span className="shrink-0 rounded-full bg-brand-soft px-2 py-1 text-xs text-brand">
+                  Nuevo
+                </span>
+              )}
+            </Link>
+          ))}
         </div>
       </section>
 
