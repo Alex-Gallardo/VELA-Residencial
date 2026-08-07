@@ -18,13 +18,19 @@
     "db:seed": "prisma db seed",
     "verify:database": "tsx scripts/verify-database.ts",
     "verify:services": "tsx scripts/verify-services.ts",
+    "e2e:fixture:setup": "tsx scripts/sprint-1-e2e-fixture.ts setup",
+    "e2e:fixture:verify": "tsx scripts/sprint-1-e2e-fixture.ts verify",
+    "e2e:fixture:cleanup": "tsx scripts/sprint-1-e2e-fixture.ts cleanup",
+    "e2e:sprint2:setup": "tsx scripts/sprint-2-e2e-fixture.ts setup",
+    "e2e:sprint2:verify": "tsx scripts/sprint-2-e2e-fixture.ts verify",
+    "e2e:sprint2:cleanup": "tsx scripts/sprint-2-e2e-fixture.ts cleanup",
     "prepare": "husky"
   },
   "dependencies": {
-    "@radix-ui/react-slot": "1.2.3",
     "@prisma/client": "6.19.3",
-    "@sentry/node": "10.69.0",
+    "@radix-ui/react-slot": "1.2.3",
     "@sentry/nextjs": "10.69.0",
+    "@sentry/node": "10.69.0",
     "@supabase/ssr": "0.7.0",
     "@supabase/supabase-js": "2.57.4",
     "@vercel/analytics": "1.5.0",
@@ -39,7 +45,8 @@
     "react-dom": "19.1.1",
     "server-only": "0.0.1",
     "tailwind-merge": "2.6.0",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@eslint/eslintrc": "3.3.1",
@@ -47,9 +54,9 @@
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
     "autoprefixer": "10.4.21",
+    "embedded-postgres": "18.4.0-beta.17",
     "eslint": "9.28.0",
     "eslint-config-next": "15.5.22",
-    "embedded-postgres": "18.4.0-beta.17",
     "husky": "9.1.7",
     "postcss": "8.5.23",
     "prettier": "3.5.3",
